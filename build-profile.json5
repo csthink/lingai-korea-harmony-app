@@ -1,0 +1,56 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/mars/.ohos/config/default_app_ByHDQPIV-ajM3eDQKNqxaQnvr5FvjDtGaNwvyejcci8=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "***REMOVED***",
+          "profile": "/Users/mars/.ohos/config/default_app_ByHDQPIV-ajM3eDQKNqxaQnvr5FvjDtGaNwvyejcci8=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/mars/.ohos/config/default_app_ByHDQPIV-ajM3eDQKNqxaQnvr5FvjDtGaNwvyejcci8=.p12",
+          "storePassword": "***REMOVED***"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.0.1(21)",
+        "compatibleSdkVersion": "6.0.1(21)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

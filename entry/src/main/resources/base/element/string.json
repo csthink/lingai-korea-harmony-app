@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "LingAI Korean Learning App"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "LingAI Main Entry"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "LingAI"
+    },
+    {
+      "name": "internet_permission_reason",
+      "value": "用于下载学习资源和词表数据"
+    }
+  ]
+}
