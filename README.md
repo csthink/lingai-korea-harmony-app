@@ -8,24 +8,30 @@
 - ArkTS / ArkUI
 - 本地存储: RDB + Preferences
 
-## 项目创建步骤
+## 开发环境
 
-1. 打开 DevEco Studio
-2. File → New → Create Project
-3. 选择 "Application" → "Empty Ability"
-4. 配置项目:
-   - Project name: `LingAI`
-   - Bundle name: `com.lingai.app`
-   - Save location: 选择 `app` 目录
-   - Language: ArkTS
-   - Compatible SDK: API 12
+1. 使用 DevEco Studio 5.0+ 打开本工程根目录
+2. 首次打开时 DevEco 会自动 Sync 安装依赖 (`oh_modules`)
+3. 真机调试: 连接USB后点击 Run
 
-5. 创建完成后，用本目录中的模板代码替换对应文件
+## 后端 API
+
+本工程的后端服务为独立仓库，启动方式：
+
+```bash
+cd <backend-repo-path>
+source venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+API 基地址配置见 `entry/src/main/ets/utils/Constants.ets`。
 
 ## 项目结构
 
 ```
-app/
+lingai-harmony-app/
+├── AppScope/                   # 应用级配置
+│   └── app.json5               # bundleName、版本号
 ├── entry/src/main/
 │   ├── ets/
 │   │   ├── entryability/
@@ -33,35 +39,37 @@ app/
 │   │   ├── pages/
 │   │   │   ├── Index.ets             # 首页(Tab容器)
 │   │   │   ├── LessonPage.ets        # 关卡学习页
-│   │   │   ├── DictPage.ets          # 词典页
-│   │   │   └── MinePage.ets          # 我的页
-│   │   ├── components/
-│   │   │   ├── FlashCard.ets         # 预习闪卡
-│   │   │   ├── QuizCard.ets          # 练习题卡
-│   │   │   └── WordCard.ets          # 词条卡片
-│   │   ├── services/
-│   │   │   ├── DatabaseService.ets   # 数据库服务
-│   │   │   ├── ApiService.ets        # API调用服务
-│   │   │   └── PreferencesService.ets# 偏好设置服务
-│   │   ├── models/
-│   │   │   └── DataModels.ets        # 数据模型
-│   │   └── utils/
-│   │       └── Constants.ets         # 常量定义
-│   └── resources/
-│       ├── base/
-│       │   ├── element/
-│       │   ├── media/
-│       │   └── profile/
-│       └── rawfile/                  # 预置词表数据
-└── oh-package.json5
+│   │   │   ├── SettingsPage.ets      # 设置页
+│   │   │   └── StatisticsPage.ets    # 学习统计页
+│   │   ├── components/               # UI组件
+│   │   ├── services/                 # 服务层
+│   │   ├── models/                   # 数据模型
+│   │   └── utils/                    # 工具和常量
+│   └── resources/                    # 资源文件
+├── build-profile.json5         # 构建配置 & 签名
+├── oh-package.json5            # 依赖声明
+└── hvigorfile.ts               # 构建脚本
 ```
 
-## 开发命令
+## 构建
 
 ```bash
-# 构建
+# 构建 HAP
 hvigorw assembleHap
 
 # 运行（模拟器/真机）
-在 DevEco Studio 中点击 Run
+# 在 DevEco Studio 中点击 Run
 ```
+
+## 注意事项
+
+### ArkTS 严格模式
+- 不能使用 `any`/`unknown` 类型
+- 对象字面量必须对应明确的 class/interface
+- throw 必须使用 Error 子类
+- 数组需要显式类型声明
+
+### 真机调试
+- 手机需开启开发者模式和USB调试
+- Mac和手机需在同一WiFi网络
+- API地址使用Mac的局域网IP
