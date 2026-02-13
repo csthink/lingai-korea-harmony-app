@@ -5,6 +5,8 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {}
+  "dependencies": {
+    "numberauth_standard": "file:./libs/China_Ali_PNVS.har"
+  }
 }
 

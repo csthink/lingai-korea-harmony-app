@@ -6,6 +6,8 @@ import router from '@ohos.router';
 import { LightTheme, DarkTheme, WORDS_PER_LESSON } from '../utils/Constants';
 import { globalTheme, themeManager } from '../utils/ThemeManager';
 import preferences from '@ohos.data.preferences';
+import ApiService from '../services/ApiService';
+import promptAction from '@ohos.promptAction';
 
 const PREF_NAME = 'user_settings';
 const WORDS_PER_LESSON_KEY = 'wordsPerLesson';
@@ -229,8 +231,14 @@ struct SettingsPage {
                 secondaryButton: {
                   value: '确定',
                   fontColor: '#ef4444',
-                  action: () => {
-                    router.back();
+                  action: async () => {
+                    const context = getContext(this);
+                    await ApiService.getInstance().logout(context);
+                    promptAction.showToast({ message: '退出登录成功' });
+                    router.replaceUrl({
+                      url: 'pages/Index',
+                      params: { tabIndex: 3 }
+                    });
                   }
                 }
               });

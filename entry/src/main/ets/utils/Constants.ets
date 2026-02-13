@@ -14,6 +14,8 @@ export const API_BASE_URL: string = UNIFIED_BASE_URL;
 // ---- Unified 网关常量 ----
 export const APP_ID: string = 'lingai-harmony';
 export const AUTH_APP_ID: string = '1';
+// ---- 一键登录（阿里云 PNVS）----
+export const PNVS_AUTH_SECRET: string = '***REMOVED***';  // 运行时注入或本地调试时填写，勿提交到仓库
 export const BIZ_API_PREFIX: string = '/api/app/biz';
 export const AUTH_API_PREFIX: string = '/api/app/auth';
 

@@ -19,6 +19,14 @@ class UnifiedResult {
   traceId: string = '';
 }
 
+// 一键登录开关状态
+// 一键登录开关状态
+class PhoneAuthStatus {
+  oneClickLoginEnabled: boolean = false;
+  verifyMobileEnabled: boolean = false;
+  mockMode: boolean = false; 
+}
+
 // API 响应类型
 class LevelInfo {
   levels: object[] = [];
@@ -400,6 +408,123 @@ class ApiService {
     }
   }
 
+  /**
+   * 检查一键登录开关状态
+   */
+  async checkPhoneAuthStatus(): Promise<PhoneAuthStatus> {
+    const url = `${API_BASE_URL}${AUTH_API_PREFIX}/phone-auth/status`;
+    try {
+      const response = await this.httpClient.request(url, {
+        method: http.RequestMethod.GET,
+        header: {
+          'X-App-Id': AUTH_APP_ID,
+          'X-Device-Id': this.deviceId,
+        },
+        connectTimeout: 5000,
+        readTimeout: 5000,
+      });
+
+      if (response.responseCode === 200) {
+        const result = JSON.parse(response.result as string) as UnifiedResult;
+        if (result.code !== 0) return new PhoneAuthStatus();
+        
+        // 解析 data
+        const data = result.data as Record<string, boolean>;
+        const status = new PhoneAuthStatus();
+
+        if (data) {
+          status.oneClickLoginEnabled = data['oneClickLoginEnabled'] || false;
+          status.verifyMobileEnabled = data['verifyMobileEnabled'] || false;
+          status.mockMode = data['mockMode'] || false;
+        }
+        return status;
+      }
+      return new PhoneAuthStatus();
+    } catch (error) {
+      console.warn('[ApiService] Check phone auth status failed, default to SMS');
+      return new PhoneAuthStatus();
+    }
+  }
+
+  /**
+   * 一键登录
+   */
+  async loginByOneClick(accessToken: string, context: Context): Promise<string> {
+    const url = `${API_BASE_URL}${AUTH_API_PREFIX}/login/one-click`;
+    
+    const body = JSON.stringify({
+      accessToken: accessToken,
+      deviceId: this.deviceId,
+      deviceName: deviceInfo.marketName || 'HarmonyOS Device',
+      deviceType: 'HARMONY',
+      osVersion: deviceInfo.osFullName || 'HarmonyOS',
+      appVersion: '1.0.0'
+    });
+
+    try {
+      const response = await this.httpClient.request(url, {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'X-App-Id': AUTH_APP_ID,
+          'X-Device-Id': this.deviceId,
+        },
+        extraData: body,
+        connectTimeout: 10000,
+        readTimeout: 15000,
+      });
+
+      if (response.responseCode === 200) {
+        const result = JSON.parse(response.result as string) as UnifiedResult;
+        if (result.code !== 0) {
+          throw new ApiError(result.message || '一键登录失败', result.code, result.traceId);
+        }
+        
+        const data = result.data as Record<string, Object>;
+        const token = data['accessToken'] as string || '';
+        if (!token) throw new ApiError('未获取到 Token');
+        
+        await this.setToken(token, context);
+        return token;
+      } else {
+        throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+      }
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      console.error('[ApiService] loginByOneClick failed:', JSON.stringify(error));
+      throw new ApiError('登录失败，请检查网络');
+    }
+  }
+
+  /**
+   * 退出登录
+   * 调用后端接口并清除本地 Token
+   */
+  async logout(context: Context): Promise<void> {
+    const url = `${API_BASE_URL}${AUTH_API_PREFIX}/logout`;
+    try {
+      if (this.token) {
+        await this.httpClient.request(url, {
+          method: http.RequestMethod.POST,
+          header: {
+            'Content-Type': 'application/json',
+            'X-App-Id': AUTH_APP_ID,
+            'X-Device-Id': this.deviceId,
+            'Authorization': `Bearer ${this.token}`
+          },
+          extraData: '{}',
+          connectTimeout: 5000,
+          readTimeout: 5000,
+        });
+        console.info('[ApiService] Logout request success');
+      }
+    } catch (error) {
+      console.warn('[ApiService] Logout request failed (ignored):', JSON.stringify(error));
+    } finally {
+      await this.clearToken(context);
+    }
+  }
+
   // ==================== TTS API ====================
 
   /**
@@ -741,4 +866,4 @@ class ApiService {
 }
 
 export default ApiService;
-export { LessonWordsResponse, LevelInfo, QuizConfigResponse, ApiError, QuickTranslateResult };
+export { LessonWordsResponse, LevelInfo, QuizConfigResponse, ApiError, QuickTranslateResult, PhoneAuthStatus };

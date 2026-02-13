@@ -3,13 +3,15 @@
  * 包含: 用户卡片, VIP横幅, 今日任务统计, 菜单列表
  * 适配 ArkTS 严格模式
  */
-import router from '@ohos.router';
+import { router } from '@kit.ArkUI';
 import { COLORS } from '../utils/Constants';
 import { DailyTask } from '../models/DataModels';
 import TaskTrackingService from '../services/TaskTrackingService';
-import ApiService, { ApiError } from '../services/ApiService';
+import ApiService, { ApiError, PhoneAuthStatus } from '../services/ApiService';
 import promptAction from '@ohos.promptAction';
 import { themeManager } from '../utils/ThemeManager';
+import OneClickAuthService, { OneClickError } from '../services/OneClickAuthService';
+import common from '@ohos.app.ability.common';
 
 @Component
 export struct ProfileContent {
@@ -34,6 +36,11 @@ export struct ProfileContent {
   @State loginError: string = '';  // 登录/验证码错误提示
   @State isLoggingIn: boolean = false;  // 登录中状态锁
 
+  // 一键登录状态
+  @State oneClickEnabled: boolean = false;
+  @State isOneClickLoading: boolean = false;
+  @State showSmsFallback: boolean = false;
+  @State oneClickErrorMsg: string = '';
 
   // 任务数据
   @State lessonCount: number = 13;
@@ -83,6 +90,96 @@ export struct ProfileContent {
       this.lessonCount = task.lessonStepDone;
       this.taskVersionKey++;
     });
+
+    // 初始化一键登录
+    this.initOneClickLogin(context);
+  }
+
+  async initOneClickLogin(context: Context) {
+    const apiService = ApiService.getInstance();
+    const oneClickService = OneClickAuthService.getInstance();
+    
+    try {
+      // 检查服务端开关
+      const status = await apiService.checkPhoneAuthStatus();
+      this.oneClickEnabled = status.oneClickLoginEnabled;
+      
+      if (this.oneClickEnabled) {
+        // 初始化 SDK 并预取号
+        // 注意：context 需要转换为 UIAbilityContext
+        await oneClickService.init(context as common.UIAbilityContext);
+        await oneClickService.prefetch();
+      } else {
+        // 开关关闭，直接显示短信登录
+        this.showSmsFallback = true;
+      }
+    } catch (error) {
+      console.error('[ProfileContent] Init one-click failed:', error);
+      this.showSmsFallback = true;
+    }
+  }
+
+  async performOneClickLogin() {
+    if (this.isOneClickLoading) return;
+    this.isOneClickLoading = true;
+    this.oneClickErrorMsg = '';
+    
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const oneClickService = OneClickAuthService.getInstance();
+      const apiService = ApiService.getInstance();
+      
+      // 1. 拉起授权页获取 Token
+      const accessToken = await oneClickService.requestToken(context);
+      
+      // 2. 调用服务端一键登录
+      await apiService.loginByOneClick(accessToken, context);
+      
+      // 3. 登录成功处理
+      this.handleLoginSuccess();
+      
+    } catch (error) {
+      this.isOneClickLoading = false;
+      console.error('[ProfileContent] One-click login failed:', error);
+      
+      let errorMsg = '一键登录失败，请尝试短信登录';
+      
+      // 错误映射
+      if (error instanceof Error) {
+         if (error.message === OneClickError.USER_CANCELLED) {
+           errorMsg = '用户取消授权';
+         } else if (error.message === OneClickError.NO_SIM) {
+           errorMsg = '请检查SIM卡和网络连接';
+         } else if (error.message === OneClickError.SDK_NOT_AVAILABLE) {
+           errorMsg = '一键登录暂不可用'; // Stub 模式会走到这里
+         } else if (error.message === OneClickError.NETWORK_ERROR) {
+            errorMsg = '网络连接失败';
+         }
+      }
+      
+      this.oneClickErrorMsg = errorMsg;
+      promptAction.showToast({ message: errorMsg, duration: 2000 });
+      
+      // 失败后展开短信登录
+      this.showSmsFallback = true;
+    }
+  }
+
+  handleLoginSuccess() {
+    this.isLoggedIn = true;
+    this.userName = '已登录用户';
+    this.userStatus = 'LingAI 会员';
+    this.showMainSheet = false;
+    this.phoneNumber = '';
+    this.verifyCode = '';
+    this.isLoggingIn = false;
+    this.isOneClickLoading = false;
+
+    if (this.sheetMode === 'login-upgrade') {
+      setTimeout(() => {
+        this.showPaymentConfirmation();
+      }, 300);
+    }
   }
 
   aboutToDisappear() {
@@ -548,33 +645,15 @@ export struct ProfileContent {
     });
   }
 
-  /**
-   * Sheet 内登录（支持 login-upgrade 模式）
-   */
   performSheetLogin() {
     if (this.isLoggingIn) return;
     this.isLoggingIn = true;
     this.loginError = '';
     const context = getContext(this);
     const apiService = ApiService.getInstance();
-    const currentMode = this.sheetMode;
-
+    
     apiService.loginBySms(this.phoneNumber, this.verifyCode, context).then(() => {
-      this.isLoggedIn = true;
-      this.userName = '用户' + this.phoneNumber.slice(-4);
-      this.userStatus = 'LingAI 会员';
-      this.phoneNumber = '';
-      this.verifyCode = '';
-      this.isLoggingIn = false;
-
-      if (currentMode === 'login-upgrade') {
-        this.showMainSheet = false;
-        setTimeout(() => {
-          this.showPaymentConfirmation();
-        }, 300);
-      } else {
-        this.showMainSheet = false;
-      }
+      this.handleLoginSuccess();
     }).catch((error: Error) => {
       this.isLoggingIn = false;
       if (error instanceof ApiError) {
@@ -697,101 +776,142 @@ export struct ProfileContent {
             .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
             .margin({ top: 8, bottom: 24 })
 
-          // 手机号输入
-          Column({ space: 8 }) {
-            Text('手机号')
-              .fontSize(14)
-              .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-              .width('100%')
-            TextInput({ placeholder: '请输入手机号', text: this.phoneNumber })
-              .type(InputType.PhoneNumber)
-              .maxLength(11)
-              .height(48)
-              .borderRadius(12)
-              .backgroundColor(this.phoneError
-                ? (themeManager.isDark() ? 'rgba(127,29,29,0.25)' : '#fef2f2')
-                : (themeManager.isDark() ? 'rgba(15,23,42,0.75)' : '#f1f5f9'))
-              .border({ width: this.phoneError ? 1 : 0, color: '#ef4444' })
-              .fontColor(themeManager.isDark() ? '#f8fafc' : '#0f172a')
-              .placeholderColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-              .onChange((value: string) => {
-                // 限制只能输入数字，最多11位
-                const cleanValue = value.replace(/\D/g, '').slice(0, 11);
-                this.phoneNumber = cleanValue;
-                // 手机号格式验证
-                if (cleanValue.length > 0 && cleanValue.length < 11) {
-                  this.phoneError = '请输入完整的11位手机号';
-                } else if (cleanValue.length === 11 && !/^1[3-9]\d{9}$/.test(cleanValue)) {
-                  this.phoneError = '手机号格式不正确';
-                } else {
-                  this.phoneError = '';
-                }
-              })
-            
-            // 错误提示
-            if (this.phoneError) {
-              Text(this.phoneError)
-                .fontSize(12)
-                .fontColor('#ef4444')
-                .width('100%')
-            }
-          }
-          .width('100%')
-
-          // 验证码输入
-          Column({ space: 8 }) {
-            Text('验证码')
-              .fontSize(14)
-              .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-              .width('100%')
-            Row() {
-              TextInput({ placeholder: '请输入验证码', text: this.verifyCode })
-                .type(InputType.Number)
-                .height(48)
-                .borderRadius(12)
-                .backgroundColor(themeManager.isDark() ? 'rgba(15,23,42,0.75)' : '#f1f5f9')
-                .fontColor(themeManager.isDark() ? '#f8fafc' : '#0f172a')
-                .placeholderColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-                .layoutWeight(1)
-                .onChange((value: string) => {
-                  this.verifyCode = value;
-                })
-              Button(this.countdown > 0 ? `${this.countdown}s` : '获取验证码')
+          // 一键登录入口
+          if (this.oneClickEnabled) {
+            Column() {
+              Button(this.isOneClickLoading ? '正在启动...' : '本机号码一键登录')
                 .type(ButtonType.Capsule)
-                .backgroundColor(this.countdown > 0
-                  ? (themeManager.isDark() ? '#334155' : '#e2e8f0')
-                  : (themeManager.isDark() ? 'rgba(99,102,241,0.25)' : '#6366f1'))
-                .fontColor(this.countdown > 0
-                  ? (themeManager.isDark() ? '#64748b' : '#94a3b8')
-                  : '#ffffff')
-                .fontSize(14)
-                .height(44)
-                .margin({ left: 12 })
-                .enabled(this.phoneNumber.length === 11 && this.countdown === 0)
+                .backgroundColor('#6366f1')
+                .fontColor('#ffffff')
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .width('100%')
+                .height(54)
                 .onClick(() => {
-                  this.startCountdown();
+                  this.performOneClickLogin();
                 })
+              
+              if (!this.showSmsFallback) {
+                 Row() {
+                    Divider().width('35%').color(themeManager.isDark() ? '#334155' : '#e2e8f0')
+                    Text('或').fontSize(12).fontColor(themeManager.isDark() ? '#64748b' : '#94a3b8').margin({ left: 10, right: 10 })
+                    Divider().width('35%').color(themeManager.isDark() ? '#334155' : '#e2e8f0')
+                 }.margin({ top: 24, bottom: 24 })
+
+                 Text('其他手机号码登录 >')
+                   .fontSize(14)
+                   .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+                   .onClick(() => {
+                     this.showSmsFallback = true;
+                   })
+                   .padding(10)
+              }
             }
             .width('100%')
+            .margin({ bottom: this.showSmsFallback ? 20 : 0 })
           }
-          .width('100%')
-          .margin({ top: 16 })
 
-          // 登录按钮
-          Button(this.sheetMode === 'login-upgrade' ? '登录并订阅 →' : '登录 →')
-            .type(ButtonType.Capsule)
-            .backgroundColor('#6366f1')
-            .fontColor('#ffffff')
-            .fontSize(16)
-            .fontWeight(FontWeight.Bold)
-            .width('100%')
-            .height(54)
-            .margin({ top: 24 })
-            .enabled(this.phoneNumber.length === 11 && this.verifyCode.length >= 4)
-            .opacity(this.phoneNumber.length === 11 && this.verifyCode.length >= 4 ? 1 : 0.5)
-            .onClick(() => {
-              this.performSheetLogin();
-            })
+          // 短信登录表单
+          if (this.showSmsFallback || !this.oneClickEnabled) {
+             Column() {
+               // 手机号输入
+               Column({ space: 8 }) {
+                 Text('手机号')
+                   .fontSize(14)
+                   .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+                   .width('100%')
+                 TextInput({ placeholder: '请输入手机号', text: this.phoneNumber })
+                   .type(InputType.PhoneNumber)
+                   .maxLength(11)
+                   .height(48)
+                   .borderRadius(12)
+                   .backgroundColor(this.phoneError
+                     ? (themeManager.isDark() ? 'rgba(127,29,29,0.25)' : '#fef2f2')
+                     : (themeManager.isDark() ? 'rgba(15,23,42,0.75)' : '#f1f5f9'))
+                   .border({ width: this.phoneError ? 1 : 0, color: '#ef4444' })
+                   .fontColor(themeManager.isDark() ? '#f8fafc' : '#0f172a')
+                   .placeholderColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+                   .onChange((value: string) => {
+                     // 限制只能输入数字，最多11位
+                     const cleanValue = value.replace(/\D/g, '').slice(0, 11);
+                     this.phoneNumber = cleanValue;
+                     // 手机号格式验证
+                     if (cleanValue.length > 0 && cleanValue.length < 11) {
+                       this.phoneError = '请输入完整的11位手机号';
+                     } else if (cleanValue.length === 11 && !/^1[3-9]\d{9}$/.test(cleanValue)) {
+                       this.phoneError = '手机号格式不正确';
+                     } else {
+                       this.phoneError = '';
+                     }
+                   })
+                 
+                 // 错误提示
+                 if (this.phoneError) {
+                   Text(this.phoneError)
+                     .fontSize(12)
+                     .fontColor('#ef4444')
+                     .width('100%')
+                 }
+               }
+               .width('100%')
+       
+               // 验证码输入
+               Column({ space: 8 }) {
+                 Text('验证码')
+                   .fontSize(14)
+                   .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+                   .width('100%')
+                 Row() {
+                   TextInput({ placeholder: '请输入验证码', text: this.verifyCode })
+                     .type(InputType.Number)
+                     .height(48)
+                     .borderRadius(12)
+                     .backgroundColor(themeManager.isDark() ? 'rgba(15,23,42,0.75)' : '#f1f5f9')
+                     .fontColor(themeManager.isDark() ? '#f8fafc' : '#0f172a')
+                     .placeholderColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+                     .layoutWeight(1)
+                     .onChange((value: string) => {
+                       this.verifyCode = value;
+                     })
+                   Button(this.countdown > 0 ? `${this.countdown}s` : '获取验证码')
+                     .type(ButtonType.Capsule)
+                     .backgroundColor(this.countdown > 0
+                       ? (themeManager.isDark() ? '#334155' : '#e2e8f0')
+                       : (themeManager.isDark() ? 'rgba(99,102,241,0.25)' : '#6366f1'))
+                     .fontColor(this.countdown > 0
+                       ? (themeManager.isDark() ? '#64748b' : '#94a3b8')
+                       : '#ffffff')
+                     .fontSize(14)
+                     .height(44)
+                     .margin({ left: 12 })
+                     .enabled(this.phoneNumber.length === 11 && this.countdown === 0)
+                     .onClick(() => {
+                       this.startCountdown();
+                     })
+                 }
+                 .width('100%')
+               }
+               .width('100%')
+               .margin({ top: 16 })
+       
+               // 登录按钮
+               Button(this.sheetMode === 'login-upgrade' ? '登录并订阅' : '登录')
+                 .type(ButtonType.Capsule)
+                 .backgroundColor('#6366f1')
+                 .fontColor('#ffffff')
+                 .fontSize(16)
+                 .fontWeight(FontWeight.Bold)
+                 .width('100%')
+                 .height(54)
+                 .margin({ top: 24 })
+                 .enabled(this.phoneNumber.length === 11 && this.verifyCode.length >= 4)
+                 .opacity(this.phoneNumber.length === 11 && this.verifyCode.length >= 4 ? 1 : 0.5)
+                 .onClick(() => {
+                   this.performSheetLogin();
+                 })
+             }
+             .width('100%')
+          }
 
           // 返回按钮（仅在login-upgrade模式显示）
           if (this.sheetMode === 'login-upgrade') {

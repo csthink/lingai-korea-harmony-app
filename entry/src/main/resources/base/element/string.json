@@ -15,6 +15,10 @@
     {
       "name": "internet_permission_reason",
       "value": "用于下载学习资源和词表数据"
+    },
+    {
+      "name": "network_info_permission_reason",
+      "value": "用于判断网络环境以提供一键登录服务"
     }
   ]
 }

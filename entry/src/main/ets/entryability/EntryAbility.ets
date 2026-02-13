@@ -3,6 +3,8 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 
+import OneClickAuthService from '../services/OneClickAuthService';
+
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
@@ -12,6 +14,14 @@ export default class EntryAbility extends UIAbility {
     } catch (err) {
       hilog.error(DOMAIN, 'testTag', 'Failed to set colorMode. Cause: %{public}s', JSON.stringify(err));
     }
+    
+    // 初始化一键登录 SDK (不阻断启动)
+    try {
+      OneClickAuthService.getInstance().init(this.context);
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'OneClickAuthService init failed: %{public}s', JSON.stringify(err));
+    }
+
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
   }
 
