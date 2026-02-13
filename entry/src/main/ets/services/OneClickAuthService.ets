@@ -216,22 +216,51 @@ export class OneClickAuthService {
         // 每次 requestToken 都重新注入密钥，防止 getInstance 重建后丢失
         this.authHelper.setAuthSDKInfo(sdkInfo);
         
-        // 使用 SDK 弹窗模式，规避全屏授权页在部分机型上的布局错位
-        this.authHelper.setDialog(true);
+        // SDK 默认全屏授权页（先验证布局基线，后续再定制）
+        this.authHelper.setDialog(false);
 
         let uiConfig = new AuthUiConfig();
         uiConfig.pageScreenOrientation = PageOrientation.PORTRAIT;
-        uiConfig.dialogWidth = '92%';
-        uiConfig.dialogHeight = '78%';
-        uiConfig.dialogAutoCancel = false;
 
-        // 显式设置关键颜色，避免主题干扰导致"看不见但可点"
+        // 顶部导航
+        uiConfig.navColor = '#FFFFFF';
+        uiConfig.navFontColor = '#111111';
+        uiConfig.navFontSize = 26;
+        uiConfig.navMarginTop = 16;
+
+        // 号码文本（避免“看不见/位置异常”）
         uiConfig.numberFontColor = '#111111';
-        uiConfig.privacyFontColor = '#333333';
+        uiConfig.numberFontSize = 30;
+        uiConfig.numberMargin = { top: 220 };
+        uiConfig.numberAlignRuleOption = {
+          middle: { anchor: '__container__', align: HorizontalAlign.Center },
+          top: { anchor: '__container__', align: VerticalAlign.Top },
+        };
+
+        // 登录按钮
+        uiConfig.loginBtnText = '本机号码一键登录';
         uiConfig.loginBtnFontColor = '#FFFFFF';
         uiConfig.loginBtnBackGroundColor = '#4F46E5';
         uiConfig.loginBtnDisableBackGroundColor = '#BDBDF6';
+        uiConfig.loginBtnHeight = '52vp';
+        uiConfig.loginBtnMargin = { left: 24, top: 320, right: 24 };
+        uiConfig.loginBtnAlignRuleOption = {
+          middle: { anchor: '__container__', align: HorizontalAlign.Center },
+          top: { anchor: '__container__', align: VerticalAlign.Top },
+        };
 
+        // 协议区域上移，避免底部被裁
+        uiConfig.privacyFontColor = '#333333';
+        uiConfig.privacyFontSize = 16;
+        uiConfig.privacyMargin = { left: 40, right: 40, bottom: 96 };
+        uiConfig.privacyAlignRuleOption = {
+          bottom: { anchor: '__container__', align: VerticalAlign.Bottom },
+        };
+        uiConfig.privacyCbMargin = { left: 16, bottom: 96 };
+        uiConfig.privacyCbAlignRuleOption = {
+          top: { anchor: 'clause_text', align: VerticalAlign.Top },
+          left: { anchor: '__container__', align: HorizontalAlign.Start },
+        };
         this.authHelper.setAuthConfig(uiConfig);
         
         // 拉起授权页
