@@ -1,10 +1,21 @@
 /**
  * LingAI 常量定义
- * 适配 ArkTS 严格模式x
+ * 适配 ArkTS 严格模式
  */
 
-// API 配置 - 使用Mac的IP地址，手机需要在同一WiFi网络
-export const API_BASE_URL: string = 'http://192.168.1.38:8000';
+// ---- API 基址（开发/联调切换） ----
+// 直连 FastAPI（仅本地调试用）
+export const FASTAPI_DIRECT_URL: string = 'http://192.168.1.38:8000';
+// Unified Service 网关（联调 & 生产）
+export const UNIFIED_BASE_URL: string = 'http://192.168.1.38:8080';
+// 当前生效基址 —— 切换此行即可
+export const API_BASE_URL: string = UNIFIED_BASE_URL;
+
+// ---- Unified 网关常量 ----
+export const APP_ID: string = 'lingai-harmony';
+export const AUTH_APP_ID: string = '1';
+export const BIZ_API_PREFIX: string = '/api/app/biz';
+export const AUTH_API_PREFIX: string = '/api/app/auth';
 
 // 学习配置
 export const WORDS_PER_LESSON: number = 20;
@@ -174,10 +185,14 @@ export class AppColors {
 // 为了兼容性，保留 COLORS 对象
 export const COLORS = AppColors;
 
-// 存储 Key
-export const STORAGE_KEY_USER_SETTINGS: string = 'user_settings';
-export const STORAGE_KEY_LEARNING_STATE: string = 'learning_state';
-export const STORAGE_KEY_DAILY_TASK: string = 'daily_task';
+// 存储 Key（聚合对象，与 PreferencesService 保持一致）
+export class STORAGE_KEYS {
+  static readonly USER_SETTINGS: string = 'user_settings';
+  static readonly LEARNING_STATE: string = 'learning_state';
+  static readonly DAILY_TASK: string = 'daily_task';
+  static readonly AUTH_TOKEN: string = 'auth_token';
+  static readonly DEVICE_ID: string = 'device_id';
+}
 
 // 数据库配置
 export const DB_NAME: string = 'LingAI.db';

@@ -17,6 +17,7 @@ import promptAction from '@ohos.promptAction';
 import TaskTrackingService from '../services/TaskTrackingService';
 import preferences from '@ohos.data.preferences';
 import { themeManager } from '../utils/ThemeManager';
+import ApiService from '../services/ApiService';
 
 @Entry
 @Component
@@ -43,6 +44,9 @@ struct Index {
     const context = getContext(this);
     await themeManager.init(context);
     this.isDarkMode = themeManager.isDark();
+
+    // 初始化 API 服务（加载本地 token/设备信息）
+    await ApiService.getInstance().init(context);
 
     // 初始化任务服务
     await this.taskService.init(context);

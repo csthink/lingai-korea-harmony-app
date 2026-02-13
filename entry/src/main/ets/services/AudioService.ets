@@ -6,7 +6,8 @@
 import media from '@ohos.multimedia.media';
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
-import { API_BASE_URL } from '../utils/Constants';
+import { API_BASE_URL, BIZ_API_PREFIX, APP_ID } from '../utils/Constants';
+import ApiService from './ApiService';
 
 class AudioService {
   private static instance: AudioService;
@@ -89,13 +90,27 @@ class AudioService {
    * 下载TTS音频
    */
   private async downloadAudio(text: string, lang: string): Promise<ArrayBuffer> {
-    const url = `${API_BASE_URL}/api/tts/play?text=${encodeURIComponent(text)}&lang=${lang}`;
+    const url = `${API_BASE_URL}${BIZ_API_PREFIX}/api/tts/play?text=${encodeURIComponent(text)}&lang=${lang}`;
     console.info(`AudioService: Downloading from ${url}`);
 
+    const apiService = ApiService.getInstance();
     const httpClient = http.createHttp();
     try {
+      const authHeaders: Record<string, string> = {
+        'X-App-Id': APP_ID,
+      };
+      const token = apiService.getToken();
+      if (token) {
+        authHeaders['Authorization'] = `Bearer ${token}`;
+      }
+      const deviceId = apiService.getDeviceId();
+      if (deviceId) {
+        authHeaders['X-Device-Id'] = deviceId;
+      }
+
       const response = await httpClient.request(url, {
         method: http.RequestMethod.GET,
+        header: authHeaders,
         expectDataType: http.HttpDataType.ARRAY_BUFFER,
         connectTimeout: 10000,
         readTimeout: 15000,

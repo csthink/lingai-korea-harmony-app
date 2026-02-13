@@ -7,6 +7,8 @@ import router from '@ohos.router';
 import { COLORS } from '../utils/Constants';
 import { DailyTask } from '../models/DataModels';
 import TaskTrackingService from '../services/TaskTrackingService';
+import ApiService, { ApiError } from '../services/ApiService';
+import promptAction from '@ohos.promptAction';
 import { themeManager } from '../utils/ThemeManager';
 
 @Component
@@ -29,6 +31,8 @@ export struct ProfileContent {
   @State isGettingCode: boolean = false;
   @State countdown: number = 0;
   @State showPaymentConfirmDialog: boolean = false;
+  @State loginError: string = '';  // 登录/验证码错误提示
+  @State isLoggingIn: boolean = false;  // 登录中状态锁
 
 
   // 任务数据
@@ -59,6 +63,17 @@ export struct ProfileContent {
     }
 
     const context = getContext(this);
+
+    // 初始化 API 服务并检查登录态
+    const apiService = ApiService.getInstance();
+    await apiService.init(context);
+    const savedToken = apiService.getToken();
+    if (savedToken.length > 0) {
+      this.isLoggedIn = true;
+      this.userName = '已登录用户';
+      this.userStatus = 'LingAI 会员';
+    }
+
     await this.taskService.init(context);
     this.dailyTask = this.taskService.getCurrentTask();
     this.lessonCount = this.dailyTask.lessonStepDone;
@@ -480,25 +495,95 @@ export struct ProfileContent {
   }
 
   startCountdown() {
-    this.isGettingCode = true;
-    this.countdown = 60;
-    const timer = setInterval(() => {
-      this.countdown--;
-      if (this.countdown <= 0) {
-        clearInterval(timer);
-        this.isGettingCode = false;
+    this.loginError = '';
+    const apiService = ApiService.getInstance();
+
+    apiService.sendSmsCode(this.phoneNumber).then(() => {
+      // 发送成功，启动倒计时
+      this.isGettingCode = true;
+      this.countdown = 60;
+      const timer = setInterval(() => {
+        this.countdown--;
+        if (this.countdown <= 0) {
+          clearInterval(timer);
+          this.isGettingCode = false;
+        }
+      }, 1000);
+    }).catch((error: Error) => {
+      // 发送失败，显示后端 message
+      if (error instanceof ApiError) {
+        this.loginError = error.message;
+      } else {
+        this.loginError = '发送验证码失败，请检查网络';
       }
-    }, 1000);
+      promptAction.showToast({ message: this.loginError, duration: 3000 });
+    });
   }
 
   performLogin() {
-    // 模拟登录成功
-    this.isLoggedIn = true;
-    this.userName = '用户' + this.phoneNumber.slice(-4);
-    this.userStatus = 'LingAI 会员';
-    this.showMainSheet = false;
-    this.phoneNumber = '';
-    this.verifyCode = '';
+    if (this.isLoggingIn) return;
+    this.isLoggingIn = true;
+    this.loginError = '';
+    const context = getContext(this);
+    const apiService = ApiService.getInstance();
+
+    apiService.loginBySms(this.phoneNumber, this.verifyCode, context).then(() => {
+      // 登录成功
+      this.isLoggedIn = true;
+      this.userName = '用户' + this.phoneNumber.slice(-4);
+      this.userStatus = 'LingAI 会员';
+      this.showMainSheet = false;
+      this.phoneNumber = '';
+      this.verifyCode = '';
+      this.isLoggingIn = false;
+    }).catch((error: Error) => {
+      // 登录失败，显示后端 message
+      this.isLoggingIn = false;
+      if (error instanceof ApiError) {
+        this.loginError = error.message;
+      } else {
+        this.loginError = '登录失败，请检查网络';
+      }
+      promptAction.showToast({ message: this.loginError, duration: 3000 });
+    });
+  }
+
+  /**
+   * Sheet 内登录（支持 login-upgrade 模式）
+   */
+  performSheetLogin() {
+    if (this.isLoggingIn) return;
+    this.isLoggingIn = true;
+    this.loginError = '';
+    const context = getContext(this);
+    const apiService = ApiService.getInstance();
+    const currentMode = this.sheetMode;
+
+    apiService.loginBySms(this.phoneNumber, this.verifyCode, context).then(() => {
+      this.isLoggedIn = true;
+      this.userName = '用户' + this.phoneNumber.slice(-4);
+      this.userStatus = 'LingAI 会员';
+      this.phoneNumber = '';
+      this.verifyCode = '';
+      this.isLoggingIn = false;
+
+      if (currentMode === 'login-upgrade') {
+        this.showMainSheet = false;
+        setTimeout(() => {
+          this.showPaymentConfirmation();
+        }, 300);
+      } else {
+        this.showMainSheet = false;
+      }
+    }).catch((error: Error) => {
+      this.isLoggingIn = false;
+      if (error instanceof ApiError) {
+        this.loginError = error.message;
+      } else {
+        this.loginError = '登录失败，请检查网络';
+      }
+      promptAction.showToast({ message: this.loginError, duration: 3000 });
+    });
   }
 
   showPaymentConfirmation() {
@@ -705,23 +790,7 @@ export struct ProfileContent {
             .enabled(this.phoneNumber.length === 11 && this.verifyCode.length >= 4)
             .opacity(this.phoneNumber.length === 11 && this.verifyCode.length >= 4 ? 1 : 0.5)
             .onClick(() => {
-              // 模拟登录成功
-              this.isLoggedIn = true;
-              this.userName = '用户' + this.phoneNumber.slice(-4);
-              this.userStatus = 'LingAI 会员';
-              this.phoneNumber = '';
-              this.verifyCode = '';
-              
-              if (this.sheetMode === 'login-upgrade') {
-                // 关闭弹窗后弹出支付确认对话框
-                this.showMainSheet = false;
-                setTimeout(() => {
-                  this.showPaymentConfirmation();
-                }, 300);
-              } else {
-                // 纯登录模式，直接关闭弹窗
-                this.showMainSheet = false;
-              }
+              this.performSheetLogin();
             })
 
           // 返回按钮（仅在login-upgrade模式显示）

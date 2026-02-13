@@ -3,7 +3,7 @@
  * 内嵌于Tab中展示词典搜索功能
  * 适配 ArkTS 严格模式
  */
-import { COLORS, API_BASE_URL } from '../utils/Constants';
+import { COLORS, API_BASE_URL, BIZ_API_PREFIX, APP_ID } from '../utils/Constants';
 import { WordEntry, DictAIResponse, DictSearchResponse, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample } from '../models/DataModels';
 import { WordCard } from './WordCard';
 import { PlayButton, PlayIcon } from './PlayButton';
@@ -490,7 +490,7 @@ export struct DictContent {
     this.aiSupplement = null;
 
     const encodedQuery = encodeURIComponent(query);
-    const url = `${API_BASE_URL}/api/dict/search/stream?query=${encodedQuery}&direction=auto`;
+    const url = `${API_BASE_URL}${BIZ_API_PREFIX}/api/dict/search/stream?query=${encodedQuery}&direction=auto`;
     
     const httpRequest = http.createHttp();
     let fullText = '';
@@ -512,26 +512,20 @@ export struct DictContent {
             const eventData = json['data'];
             
             if (type === 'cached') {
-              // 缓存命中 - 直接显示完整结果
               console.info('[DictContent] SSE: Cache hit');
               this.handleSearchResult(eventData as Record<string, Object>);
               this.isLoading = false;
               this.isStreaming = false;
             } else if (type === 'token') {
-              // 流式token - 收集文本并实时解析关键字段
               const token = eventData as string;
               fullText += token;
               this.streamingText = fullText;
-              
-              // 实时提取已完成的字段（使用正则匹配）
               this.parseStreamingContent(fullText);
             } else if (type === 'done') {
-              // 流式完成 - 解析完整结果
               console.info('[DictContent] SSE: Streaming done');
               this.isStreaming = false;
               this.handleSearchResult(eventData as Record<string, Object>);
             } else if (type === 'error') {
-              // 错误
               const errorMsg = json['message'] as string;
               console.error('[DictContent] SSE error: ' + errorMsg);
               this.isLoading = false;
@@ -549,18 +543,30 @@ export struct DictContent {
       this.isLoading = false;
       this.isStreaming = false;
       
-      // 添加到历史
       this.addToHistory(query);
       this.addToBrowseHistory(query);
       this.isInVocabulary = this.vocabularyService.hasWord(query);
     });
 
+    // 构建鉴权请求头
+    const apiService = ApiService.getInstance();
+    const sseHeaders: Record<string, string> = {
+      'Accept': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'X-App-Id': APP_ID,
+    };
+    const sseToken = apiService.getToken();
+    if (sseToken) {
+      sseHeaders['Authorization'] = `Bearer ${sseToken}`;
+    }
+    const sseDeviceId = apiService.getDeviceId();
+    if (sseDeviceId) {
+      sseHeaders['X-Device-Id'] = sseDeviceId;
+    }
+
     const options: http.HttpRequestOptions = {
       method: http.RequestMethod.GET,
-      header: {
-        'Accept': 'text/event-stream',
-        'Cache-Control': 'no-cache'
-      },
+      header: sseHeaders,
       expectDataType: http.HttpDataType.STRING
     };
 
