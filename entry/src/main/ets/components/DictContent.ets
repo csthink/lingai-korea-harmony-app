@@ -92,6 +92,11 @@ export struct DictContent {
   private static readonly HISTORY_KEY: string = 'dict_search_history';
   private static readonly MAX_HISTORY: number = 10;
   private unsubscribeTheme: (() => void) | null = null;
+  // SSE 并发保护 & 状态追踪
+  private activeHttpRequest: http.HttpRequest | null = null;
+  private sseBuffer: string = '';
+  private sseGotResult: boolean = false;
+  private sseFallbackTriggered: boolean = false;
 
   async aboutToAppear() {
     if (this.unsubscribeTheme === null) {
@@ -478,9 +483,17 @@ export struct DictContent {
       return;
     }
 
-    // 直接显示"AI正在分析"，不经过"搜索中"状态
+    // ===== 并发保护：终止上一条流式请求 =====
+    if (this.activeHttpRequest !== null) {
+      try {
+        this.activeHttpRequest.destroy();
+      } catch (_e) { /* ignore */ }
+      this.activeHttpRequest = null;
+    }
+
+    // 直接显示“AI正在分析”
     this.isLoading = false;
-    this.isStreaming = true;  // 立即进入流式状态
+    this.isStreaming = true;
     this.streamingText = '';
     this.streamingMeaning = '';
     this.streamingWordType = '';
@@ -489,30 +502,54 @@ export struct DictContent {
     this.showHistory = false;
     this.aiSupplement = null;
 
+    // 重置 SSE 状态
+    this.sseBuffer = '';
+    this.sseGotResult = false;
+    this.sseFallbackTriggered = false;
+
     const encodedQuery = encodeURIComponent(query);
     const url = `${API_BASE_URL}${BIZ_API_PREFIX}/api/dict/search/stream?query=${encodedQuery}&direction=auto`;
-    
+
     const httpRequest = http.createHttp();
+    this.activeHttpRequest = httpRequest;
     let fullText = '';
-    
+
+    // ===== dataReceive：缓冲区累积 + \n\n 分割完整事件 =====
     httpRequest.on('dataReceive', (data: ArrayBuffer) => {
+      // 并发保护：如果已不是当前活跃请求，忽略回调
+      if (this.activeHttpRequest !== httpRequest) return;
+
       const textDecoder = util.TextDecoder.create('utf-8');
       const uint8Array = new Uint8Array(data);
-      const text = textDecoder.decodeToString(uint8Array);
-      
-      // 解析SSE数据
-      const lines = text.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('data: ')) {
-          const content = line.substring(6);
+      const chunk = textDecoder.decodeToString(uint8Array);
+      this.sseBuffer += chunk;
+
+      // 按 \n\n 切分完整事件
+      const events = this.sseBuffer.split('\n\n');
+      // 最后一段可能不完整，留在缓冲区
+      this.sseBuffer = events[events.length - 1];
+
+      for (let e = 0; e < events.length - 1; e++) {
+        const eventBlock = events[e].trim();
+        if (eventBlock.length === 0) continue;
+
+        // 每个事件块可能有多行，取 data: 行
+        const blockLines = eventBlock.split('\n');
+        for (let i = 0; i < blockLines.length; i++) {
+          const line = blockLines[i];
+          // 前缀兼容："data: " 或 "data:"
+          if (!line.startsWith('data:')) continue;
+          const payload = line.substring(5).trimStart();
+          if (payload.length === 0) continue;
+
           try {
-            const json = JSON.parse(content) as Record<string, Object>;
+            const json = JSON.parse(payload) as Record<string, Object>;
             const type = json['type'] as string;
             const eventData = json['data'];
-            
+
             if (type === 'cached') {
               console.info('[DictContent] SSE: Cache hit');
+              this.sseGotResult = true;
               this.handleSearchResult(eventData as Record<string, Object>);
               this.isLoading = false;
               this.isStreaming = false;
@@ -523,29 +560,70 @@ export struct DictContent {
               this.parseStreamingContent(fullText);
             } else if (type === 'done') {
               console.info('[DictContent] SSE: Streaming done');
+              this.sseGotResult = true;
               this.isStreaming = false;
               this.handleSearchResult(eventData as Record<string, Object>);
             } else if (type === 'error') {
-              const errorMsg = json['message'] as string;
+              const errorMsg = json['message'] as string || 'Unknown error';
               console.error('[DictContent] SSE error: ' + errorMsg);
               this.isLoading = false;
               this.isStreaming = false;
+              // 错误回退：仅触发一次
+              if (!this.sseFallbackTriggered) {
+                this.sseFallbackTriggered = true;
+                this.performSearch();
+              }
             }
-          } catch (e) {
-            // 忽略解析错误
+          } catch (_parseErr) {
+            // 忽略单条解析错误
           }
         }
       }
     });
 
+    // ===== dataEnd：结束兔底 =====
     httpRequest.on('dataEnd', () => {
       console.info('[DictContent] SSE: Stream ended');
       this.isLoading = false;
       this.isStreaming = false;
-      
-      this.addToHistory(query);
-      this.addToBrowseHistory(query);
-      this.isInVocabulary = this.vocabularyService.hasWord(query);
+
+      // 尝试解析缓冲区中残余数据
+      if (this.sseBuffer.trim().length > 0) {
+        const remaining = this.sseBuffer.trim();
+        const remainLines = remaining.split('\n');
+        for (let i = 0; i < remainLines.length; i++) {
+          const line = remainLines[i];
+          if (!line.startsWith('data:')) continue;
+          const payload = line.substring(5).trimStart();
+          if (payload.length === 0) continue;
+          try {
+            const json = JSON.parse(payload) as Record<string, Object>;
+            const type = json['type'] as string;
+            const eventData = json['data'];
+            if (type === 'cached' || type === 'done') {
+              this.sseGotResult = true;
+              this.handleSearchResult(eventData as Record<string, Object>);
+            }
+          } catch (_e) { /* ignore */ }
+        }
+        this.sseBuffer = '';
+      }
+
+      // 如果整个流未收到 cached/done 且无结果，回退普通搜索
+      if (!this.sseGotResult && this.aiSupplement === null && !this.sseFallbackTriggered) {
+        console.warn('[DictContent] SSE: No result received, fallback to normal search');
+        this.sseFallbackTriggered = true;
+        this.performSearch();
+      } else {
+        this.addToHistory(query);
+        this.addToBrowseHistory(query);
+        this.isInVocabulary = this.vocabularyService.hasWord(query);
+      }
+
+      // 清理引用
+      if (this.activeHttpRequest === httpRequest) {
+        this.activeHttpRequest = null;
+      }
     });
 
     // 构建鉴权请求头
@@ -575,8 +653,14 @@ export struct DictContent {
         console.error('[DictContent] SSE request error: ' + JSON.stringify(err));
         this.isLoading = false;
         this.isStreaming = false;
-        // SSE失败时回退到普通搜索（避免无限循环）
-        this.performSearch();
+        if (this.activeHttpRequest === httpRequest) {
+          this.activeHttpRequest = null;
+        }
+        // SSE请求失败回退（仅一次）
+        if (!this.sseFallbackTriggered) {
+          this.sseFallbackTriggered = true;
+          this.performSearch();
+        }
       }
     });
   }
