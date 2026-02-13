@@ -18,6 +18,7 @@ export struct ProfileContent {
   @State isLoggedIn: boolean = false;
   @State isPro: boolean = false;  // 区分Pro会员和普通会员
   @State userName: string = '点击登录/注册';
+  @State userAvatar: string = '';
   @State userStatus: string = '登录同步学习进度';
   @State showMainSheet: boolean = false;  // 统一弹窗状态
   @State sheetMode: string = 'vip';  // 'vip' | 'login' | 'login-upgrade'
@@ -77,12 +78,7 @@ export struct ProfileContent {
     // 初始化 API 服务并检查登录态
     const apiService = ApiService.getInstance();
     await apiService.init(context);
-    const savedToken = apiService.getToken();
-    if (savedToken.length > 0) {
-      this.isLoggedIn = true;
-      this.userName = '已登录用户';
-      this.userStatus = 'LingAI 会员';
-    }
+    this.syncLoginStateFromToken();
 
     await this.taskService.init(context);
     this.dailyTask = this.taskService.getCurrentTask();
@@ -96,6 +92,39 @@ export struct ProfileContent {
 
     // 初始化一键登录
     this.initOneClickLogin(context);
+  }
+
+  async syncLoginStateFromToken() {
+    const apiService = ApiService.getInstance();
+    const hasToken = apiService.getToken().length > 0;
+    
+    if (hasToken) {
+      this.isLoggedIn = true;
+      try {
+        const userInfo = await apiService.getCurrentUserInfo();
+        this.userName = userInfo.phone || userInfo.nickname || '点击登录/注册';
+        this.userAvatar = userInfo.avatar;
+        
+        if (userInfo.vipStatus === 'PRO') {
+          this.isPro = true;
+          this.userStatus = 'LingAI Pro 会员';
+        } else {
+          this.isPro = false;
+          this.userStatus = 'LingAI 会员';
+        }
+      } catch (error) {
+        console.warn('[ProfileContent] Sync login info failed:', error);
+        // Token 可能失效，视为未登录
+        this.isLoggedIn = false;
+        this.userName = '点击登录/注册';
+        await apiService.clearToken(getContext(this));
+      }
+    } else {
+      this.isLoggedIn = false;
+      this.isPro = false;
+      this.userName = '点击登录/注册';
+      this.userStatus = '登录同步学习进度';
+    }
   }
 
   async initOneClickLogin(context: Context) {
@@ -127,11 +156,12 @@ export struct ProfileContent {
     this.isOneClickLoading = true;
     this.oneClickErrorMsg = '';
     
+    const apiService = ApiService.getInstance();
+    const hasTokenBefore = apiService.getToken().length > 0;
+    
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const oneClickService = OneClickAuthService.getInstance();
-      const apiService = ApiService.getInstance();
-      
        
       // 1. 拉起授权页获取 Token
       const accessToken = await oneClickService.requestToken(context);
@@ -145,6 +175,12 @@ export struct ProfileContent {
     } catch (error) {
       this.isOneClickLoading = false;
       console.error('[ProfileContent] One-click login failed:', error);
+
+       // 强制回滚：如果登录前未登录，且本次失败，确保清除可能存在的中间态 Token
+       if (!hasTokenBefore) {
+         await apiService.clearToken(getContext(this));
+         this.syncLoginStateFromToken();
+       }
       
       let toastMsg = '一键登录失败，已切换短信登录';
       let shouldCooldown = false;
@@ -200,8 +236,6 @@ export struct ProfileContent {
       }
       
       this.oneClickErrorMsg = toastMsg;
-      
-      this.oneClickErrorMsg = toastMsg;
       promptAction.showToast({ message: toastMsg, duration: 3000 });
       
       // 失败后展开短信登录
@@ -210,20 +244,26 @@ export struct ProfileContent {
   }
 
   handleLoginSuccess() {
-    this.isLoggedIn = true;
-    this.userName = '已登录用户';
-    this.userStatus = 'LingAI 会员';
     this.showMainSheet = false;
-    this.phoneNumber = '';
-    this.verifyCode = '';
-    this.isLoggingIn = false;
     this.isOneClickLoading = false;
+    this.isLoggingIn = false;
+    this.oneClickCooldownSec = 0;
 
-    if (this.sheetMode === 'login-upgrade') {
-      setTimeout(() => {
-        this.showPaymentConfirmation();
-      }, 300);
+    if (this.oneClickCooldownTimer !== -1) {
+      clearInterval(this.oneClickCooldownTimer);
+      this.oneClickCooldownTimer = -1;
     }
+    this.showSmsFallback = false;
+
+    // 同步最新用户信息
+    this.syncLoginStateFromToken();
+    
+    // 刷新任务列表
+    this.taskService.refreshTask().then(task => {
+      this.dailyTask = task;
+    });
+    
+    promptAction.showToast({ message: '登录成功' });
   }
 
   aboutToDisappear() {
@@ -283,6 +323,10 @@ export struct ProfileContent {
       .width('100%')
       .height('100%')
       .backgroundColor(COLORS.BACKGROUND)
+      .onAppear(() => {
+        // Tabs 切换返回时强制同步，避免登录态 UI 残留
+        this.syncLoginStateFromToken();
+      })
       .bindSheet($$this.showMainSheet, this.MainSheetBuilder(), {
         height: SheetSize.FIT_CONTENT,
         dragBar: true,
@@ -685,13 +729,7 @@ export struct ProfileContent {
 
     apiService.loginBySms(this.phoneNumber, this.verifyCode, context).then(() => {
       // 登录成功
-      this.isLoggedIn = true;
-      this.userName = '用户' + this.phoneNumber.slice(-4);
-      this.userStatus = 'LingAI 会员';
-      this.showMainSheet = false;
-      this.phoneNumber = '';
-      this.verifyCode = '';
-      this.isLoggingIn = false;
+      this.handleLoginSuccess();
     }).catch((error: Error) => {
       // 登录失败，显示后端 message
       this.isLoggingIn = false;

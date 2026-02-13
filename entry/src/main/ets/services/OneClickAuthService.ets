@@ -4,7 +4,7 @@
  */
 import common from '@ohos.app.ability.common';
 import { PNVS_AUTH_SECRET } from '../utils/Constants';
-import PhoneNumberAuthHelper, { TokenResultListener, AuthUiConfig, PageOrientation } from 'numberauth_standard';
+import PhoneNumberAuthHelper, { TokenResultListener, AuthUiConfig, PageOrientation, AuthUIControlClickListener } from 'numberauth_standard';
 
 export enum OneClickError {
   USER_CANCELLED = 'USER_CANCELLED',          // 用户取消授权
@@ -29,8 +29,11 @@ export class OneClickAuthService {
   private timeoutTimer: number = -1;
   // 运行时密钥覆盖（优先于 Constants 中的占位值）
   private secretOverride: string = '';
-
-
+  private cancelledByUser: boolean = false;
+  // 请求是否已终结（避免重复 resolve/reject）
+  private requestSettled: boolean = false;
+  // 授权页是否已显示（用于判断是否需要 quitLoginPage）
+  private authPageShown: boolean = false;
 
   private constructor() {}
 
@@ -136,6 +139,21 @@ export class OneClickAuthService {
       throw new Error(OneClickError.SDK_NOT_AVAILABLE);
     }
 
+    this.cancelledByUser = false;
+    this.requestSettled = false;
+    this.authPageShown = false;
+
+    // 监听 UI 点击事件 (仅标记取消状态，逻辑统一在 onFailure 700000 处理)
+    const uiClickListener: AuthUIControlClickListener = {
+      onClick: (code: string, jsonString: string) => {
+        console.info(`[OneClickAuthService] UI Click: code=${code}`);
+        if (code === '700000' || code === '.authpage.return' || code === 'sdk.quit.auth' || code === '.authpage.switch') {
+          this.cancelledByUser = true;
+        }
+      }
+    };
+    this.authHelper.setUIClickListener(uiClickListener);
+
     return new Promise((resolve, reject) => {
       this.tokenResolve = resolve;
       this.tokenReject = reject;
@@ -143,7 +161,14 @@ export class OneClickAuthService {
       // 定义监听器
       const listener: TokenResultListener = {
         onSuccess: (msg: string) => {
+          if (this.requestSettled) return;
           this.clearTimeoutTimer();
+          
+          if (this.cancelledByUser) {
+            console.warn('[OneClickAuthService] Token received but cancelled by user, ignoring.');
+            return;
+          }
+
           try {
              // 兼容 _code/code, _token/token, _requestId/requestId, _msg/msg
              const res = JSON.parse(msg) as Record<string, Object>;
@@ -152,24 +177,36 @@ export class OneClickAuthService {
              const requestId = (res['_requestId'] || res['requestId']) as string;
              
              if (code === '600000' && token) {
-                if (this.tokenResolve) this.tokenResolve(token);
+                if (this.tokenResolve) {
+                   this.authHelper?.quitLoginPage();
+                   this.requestSettled = true;
+                   this.tokenResolve(token);
+                }
                 this.cleanup();
              } else if (code === '600001') {
                 // Auth page presented
+                this.authPageShown = true;
              } else {
                 // 将配置类错误码映射为 CONFIG_MISMATCH
                 const errorType = this.classifyErrorCode(code);
                 console.warn(`[OneClickAuthService] Unexpected success code=${code}, requestId=${requestId}, mapped=${errorType}`);
-                if (this.tokenReject) this.tokenReject(new Error(`${errorType}:${code}`));
+                if (this.tokenReject) {
+                   this.requestSettled = true;
+                   this.tokenReject(new Error(`${errorType}:${code}`));
+                }
                 this.cleanup();
              }
           } catch (e) {
              console.error('[OneClickAuthService] Parse success msg failed');
-             if (this.tokenReject) this.tokenReject(new Error(`${OneClickError.UNKNOWN}:PARSE_ERROR`));
+             if (this.tokenReject) {
+                this.requestSettled = true;
+                this.tokenReject(new Error(`${OneClickError.UNKNOWN}:PARSE_ERROR`));
+             }
              this.cleanup();
           }
         },
         onFailure: (ret: string) => {
+          if (this.requestSettled) return;
           this.clearTimeoutTimer();
           
           let errorType = OneClickError.UNKNOWN;
@@ -193,16 +230,25 @@ export class OneClickAuthService {
              console.error('[OneClickAuthService] Parse failure msg failed');
           }
 
-          if (this.tokenReject) this.tokenReject(new Error(`${errorType}:${rawCode}`));
+          if (this.tokenReject) {
+             this.requestSettled = true;
+             this.tokenReject(new Error(`${errorType}:${rawCode}`));
+          }
           this.cleanup();
         }
       };
 
       // 超时保护
       this.timeoutTimer = setTimeout(() => {
-        if (this.tokenReject) {
+        if (!this.requestSettled && this.tokenReject) {
             console.warn('[OneClickAuthService] requestToken timeout');
+            this.requestSettled = true;
             this.tokenReject(new Error(`${OneClickError.TIMEOUT}:5000`));
+            
+            // 仅在已显示授权页且超时的情况下尝试关闭
+            if (this.authPageShown) {
+               this.authHelper?.quitLoginPage();
+            }
             this.cleanup();
         }
       }, 5000);
@@ -310,7 +356,7 @@ export class OneClickAuthService {
   private cleanup() {
     this.clearTimeoutTimer();
     try {
-      this.authHelper?.quitLoginPage();
+      // 移除主动 quitLoginPage，避免干扰正常流程或重复调用
       this.authHelper?.setAuthListener({
         onSuccess: (_msg: string) => {},
         onFailure: (_ret: string) => {}

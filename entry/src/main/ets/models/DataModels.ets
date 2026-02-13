@@ -286,3 +286,17 @@ export class DictSearchResponse {
 
   constructor() {}
 }
+
+/**
+ * 用户信息
+ */
+export class UserInfo {
+  id: number = 0;
+  phone: string = '';          // 脱敏手机号
+  nickname: string = '';
+  avatar: string = '';
+  vipStatus: string = '';      // 'NORMAL' | 'VIP' | 'PRO'
+  vipExpireAt: number = 0;
+
+  constructor() {}
+}

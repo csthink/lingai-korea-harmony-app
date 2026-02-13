@@ -7,7 +7,7 @@ import http from '@ohos.net.http';
 import preferences from '@ohos.data.preferences';
 import deviceInfo from '@ohos.deviceInfo';
 import { API_BASE_URL, BIZ_API_PREFIX, AUTH_API_PREFIX, APP_ID, AUTH_APP_ID, STORAGE_KEYS } from '../utils/Constants';
-import { DictAIResponse, DictSearchResponse, WordEntry, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample } from '../models/DataModels';
+import { DictAIResponse, DictSearchResponse, WordEntry, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample, UserInfo } from '../models/DataModels';
 
 // ==================== 响应 & 错误类型 ====================
 
@@ -493,6 +493,49 @@ class ApiService {
       if (error instanceof ApiError) throw error;
       console.error('[ApiService] loginByOneClick failed:', JSON.stringify(error));
       throw new ApiError('登录失败，请检查网络');
+    }
+  }
+
+  // ==================== User API ====================
+
+  /**
+   * 获取当前用户信息
+   */
+  async getCurrentUserInfo(): Promise<UserInfo> {
+    // 直连 Unified 用户接口 (该接口不走 /biz 前缀)
+    const url = `${API_BASE_URL}/api/app/user/info`;
+
+    try {
+      const response = await this.httpClient.request(url, {
+        method: http.RequestMethod.GET,
+        header: this.getAuthHeaders(),
+        connectTimeout: 5000,
+        readTimeout: 5000,
+      });
+
+      if (response.responseCode === 200) {
+        // 解包 UnifiedResult
+        const result = JSON.parse(response.result as string) as UnifiedResult;
+        if (result.code !== 0) {
+           throw new ApiError(result.message || 'Get user info failed', result.code, result.traceId);
+        }
+        
+        const data = result.data as Record<string, Object>;
+        const userInfo = new UserInfo();
+        userInfo.id = data['id'] as number || 0;
+        userInfo.phone = data['phone'] as string || '';
+        userInfo.nickname = data['nickname'] as string || '';
+        userInfo.avatar = data['avatar'] as string || '';
+        userInfo.vipStatus = data['vipStatus'] as string || 'NORMAL';
+        
+        return userInfo;
+      } else {
+         throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+      }
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      console.error('[ApiService] Get user info failed:', JSON.stringify(error));
+      throw error as Error;
     }
   }
 
