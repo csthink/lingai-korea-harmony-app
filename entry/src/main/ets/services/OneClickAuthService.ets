@@ -29,6 +29,8 @@ export class OneClickAuthService {
   // 运行时密钥覆盖（优先于 Constants 中的占位值）
   private secretOverride: string = '';
 
+
+
   private constructor() {}
 
   /**
@@ -36,7 +38,6 @@ export class OneClickAuthService {
    */
   overrideSecret(secret: string): void {
     this.secretOverride = secret.trim();
-    console.info(`[OneClickAuthService] Secret overridden: ${this.secretSummary(this.secretOverride)}`);
   }
 
   /**
@@ -56,10 +57,7 @@ export class OneClickAuthService {
   /**
    * 脱敏日志：长度 + 前后各 4 位摘要
    */
-  private secretSummary(secret: string): string {
-    if (secret.length <= 8) return `len=${secret.length}`;
-    return `len=${secret.length}, head=${secret.substring(0, 4)}, tail=${secret.substring(secret.length - 4)}`;
-  }
+
 
   static getInstance(): OneClickAuthService {
     if (!OneClickAuthService.instance) {
@@ -72,22 +70,26 @@ export class OneClickAuthService {
    * 初始化 SDK
    */
   async init(context: common.UIAbilityContext): Promise<void> {
+
+    
     if (this.initialized) return;
     
     try {
       // 校验密钥
       const sdkInfo = this.getValidatedSecret();
-      console.info(`[OneClickAuthService] init sdkInfo: ${this.secretSummary(sdkInfo)}`);
 
       // 获取实例并设置密钥 (Init 需要 Listener，传入空实现)
       this.authHelper = PhoneNumberAuthHelper.getInstance(context, {
         onSuccess: (msg) => console.debug('[OneClick] Init Listener success:', msg),
         onFailure: (ret) => console.debug('[OneClick] Init Listener failure:', ret)
       });
+
       this.authHelper.setAuthSDKInfo(sdkInfo);
       
       // 环境检查 (2: 一键登录)
       this.authHelper.checkEnvAvailable(2);
+
+
       
       console.info('[OneClickAuthService] Initialized');
       this.initialized = true;
@@ -140,7 +142,6 @@ export class OneClickAuthService {
       // 定义监听器
       const listener: TokenResultListener = {
         onSuccess: (msg: string) => {
-          console.info('[OneClickAuthService] onSuccess raw:', msg);
           this.clearTimeoutTimer();
           try {
              // 兼容 _code/code, _token/token, _requestId/requestId, _msg/msg
@@ -148,47 +149,41 @@ export class OneClickAuthService {
              const code = (res['_code'] || res['code']) as string;
              const token = (res['_token'] || res['token']) as string;
              const requestId = (res['_requestId'] || res['requestId']) as string;
-             const sdkMsg = (res['_msg'] || res['msg'] || '') as string;
-             console.info(`[OneClickAuthService] onSuccess code=${code}, msg=${sdkMsg}, requestId=${requestId}`);
              
              if (code === '600000' && token) {
                 if (this.tokenResolve) this.tokenResolve(token);
                 this.cleanup();
              } else if (code === '600001') {
-                console.info('[OneClickAuthService] Auth page presented');
+                // Auth page presented
              } else {
                 // 将配置类错误码映射为 CONFIG_MISMATCH
                 const errorType = this.classifyErrorCode(code);
-                console.warn(`[OneClickAuthService] Unexpected success code=${code}, msg=${sdkMsg}, requestId=${requestId}, mapped=${errorType}`);
+                console.warn(`[OneClickAuthService] Unexpected success code=${code}, requestId=${requestId}, mapped=${errorType}`);
                 if (this.tokenReject) this.tokenReject(new Error(`${errorType}:${code}`));
                 this.cleanup();
              }
           } catch (e) {
-             console.error('[OneClickAuthService] Parse success msg failed:', e);
+             console.error('[OneClickAuthService] Parse success msg failed');
              if (this.tokenReject) this.tokenReject(new Error(`${OneClickError.UNKNOWN}:PARSE_ERROR`));
              this.cleanup();
           }
         },
         onFailure: (ret: string) => {
-          console.warn('[OneClickAuthService] onFailure raw:', ret);
           this.clearTimeoutTimer();
           
           let errorType = OneClickError.UNKNOWN;
           let rawCode = 'UNKNOWN';
-          let rawMsg = '';
-          let rawRequestId = '';
           
           try {
              const res = JSON.parse(ret) as Record<string, Object>;
              rawCode = (res['_code'] || res['code'] || 'UNKNOWN') as string;
-             rawMsg = (res['_msg'] || res['msg'] || '') as string;
-             rawRequestId = (res['_requestId'] || res['requestId'] || '') as string;
+             const requestId = (res['_requestId'] || res['requestId'] || '') as string;
              
-             console.warn(`[OneClickAuthService] onFailure code=${rawCode}, msg=${rawMsg}, requestId=${rawRequestId}`);
+             console.warn(`[OneClickAuthService] onFailure code=${rawCode}, requestId=${requestId}`);
              
              errorType = this.classifyErrorCode(rawCode);
           } catch (e) {
-             console.error('[OneClickAuthService] Parse failure msg failed:', e);
+             console.error('[OneClickAuthService] Parse failure msg failed');
           }
 
           if (this.tokenReject) this.tokenReject(new Error(`${errorType}:${rawCode}`));
@@ -209,7 +204,6 @@ export class OneClickAuthService {
       try {
         // 校验密钥
         const sdkInfo = this.getValidatedSecret();
-        console.info(`[OneClickAuthService] requestToken sdkInfo: ${this.secretSummary(sdkInfo)}`);
 
         this.authHelper = PhoneNumberAuthHelper.getInstance(context, listener);
         
@@ -327,6 +321,9 @@ export class OneClickAuthService {
       this.timeoutTimer = -1;
     }
   }
+
+
+
 }
 
 export default OneClickAuthService;

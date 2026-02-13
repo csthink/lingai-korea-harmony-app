@@ -4,11 +4,16 @@ import { window } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 
 import OneClickAuthService from '../services/OneClickAuthService';
+import { PNVS_AUTH_SECRET_DEV } from '../local/Secret.dev';
+import { ConsoleInterceptor } from '../utils/ConsoleInterceptor';
 
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // 尽早初始化日志拦截器
+    ConsoleInterceptor.init();
+
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
     } catch (err) {
@@ -17,6 +22,11 @@ export default class EntryAbility extends UIAbility {
     
     // 初始化一键登录 SDK (不阻断启动)
     try {
+      // 启动时注入真实密钥 (来自本地忽略文件)
+      if (PNVS_AUTH_SECRET_DEV && PNVS_AUTH_SECRET_DEV.trim().length > 0) {
+        OneClickAuthService.getInstance().overrideSecret(PNVS_AUTH_SECRET_DEV.trim());
+      }
+      
       OneClickAuthService.getInstance().init(this.context);
     } catch (err) {
       hilog.error(DOMAIN, 'testTag', 'OneClickAuthService init failed: %{public}s', JSON.stringify(err));
