@@ -4,12 +4,13 @@
  */
 import common from '@ohos.app.ability.common';
 import { PNVS_AUTH_SECRET } from '../utils/Constants';
-import PhoneNumberAuthHelper, { TokenResultListener, AuthUiConfig } from 'numberauth_standard';
+import PhoneNumberAuthHelper, { TokenResultListener, AuthUiConfig, PageOrientation } from 'numberauth_standard';
 
 export enum OneClickError {
   USER_CANCELLED = 'USER_CANCELLED',          // 用户取消授权
   NETWORK_ERROR = 'NETWORK_ERROR',            // 网络问题
   CARRIER_ERROR = 'CARRIER_ERROR',            // 运营商校验失败
+  CONFIG_MISMATCH = 'CONFIG_MISMATCH',        // SDK 密钥/方案配置错误（600017 等）
   NO_SIM = 'NO_SIM',                          // 无 SIM / 飞行模式
   SDK_NOT_AVAILABLE = 'SDK_NOT_AVAILABLE',    // SDK 不可用
   UNKNOWN = 'UNKNOWN',                        // 未知错误
@@ -24,8 +25,41 @@ export class OneClickAuthService {
   // 当前请求的 Promise Resolver
   private tokenResolve: ((value: string) => void) | undefined;
   private tokenReject: ((reason?: Error) => void) | undefined;
+  private timeoutTimer: number = -1;
+  // 运行时密钥覆盖（优先于 Constants 中的占位值）
+  private secretOverride: string = '';
 
   private constructor() {}
+
+  /**
+   * 运行时注入真实密钥（用于本地调试，不提交到仓库）
+   */
+  overrideSecret(secret: string): void {
+    this.secretOverride = secret.trim();
+    console.info(`[OneClickAuthService] Secret overridden: ${this.secretSummary(this.secretOverride)}`);
+  }
+
+  /**
+   * 获取生效的 SDK 密钥（优先 override > Constants）
+   * 为空或占位值则抛出 CONFIG_MISMATCH
+   */
+  private getValidatedSecret(): string {
+    const sdkInfo = this.secretOverride.length > 0
+      ? this.secretOverride
+      : PNVS_AUTH_SECRET.trim();
+    if (sdkInfo.length === 0 || sdkInfo === '__PNVS_SECRET_PLACEHOLDER__') {
+      throw new Error(`${OneClickError.CONFIG_MISMATCH}:EMPTY_SECRET`);
+    }
+    return sdkInfo;
+  }
+
+  /**
+   * 脱敏日志：长度 + 前后各 4 位摘要
+   */
+  private secretSummary(secret: string): string {
+    if (secret.length <= 8) return `len=${secret.length}`;
+    return `len=${secret.length}, head=${secret.substring(0, 4)}, tail=${secret.substring(secret.length - 4)}`;
+  }
 
   static getInstance(): OneClickAuthService {
     if (!OneClickAuthService.instance) {
@@ -41,12 +75,16 @@ export class OneClickAuthService {
     if (this.initialized) return;
     
     try {
+      // 校验密钥
+      const sdkInfo = this.getValidatedSecret();
+      console.info(`[OneClickAuthService] init sdkInfo: ${this.secretSummary(sdkInfo)}`);
+
       // 获取实例并设置密钥 (Init 需要 Listener，传入空实现)
       this.authHelper = PhoneNumberAuthHelper.getInstance(context, {
         onSuccess: (msg) => console.debug('[OneClick] Init Listener success:', msg),
         onFailure: (ret) => console.debug('[OneClick] Init Listener failure:', ret)
       });
-      this.authHelper.setAuthSDKInfo(PNVS_AUTH_SECRET);
+      this.authHelper.setAuthSDKInfo(sdkInfo);
       
       // 环境检查 (2: 一键登录)
       this.authHelper.checkEnvAvailable(2);
@@ -56,6 +94,10 @@ export class OneClickAuthService {
     } catch (error) {
       console.error('[OneClickAuthService] Init failed:', JSON.stringify(error));
       this.initialized = false;
+      // 如果是 CONFIG_MISMATCH 直接向上抛
+      if (error instanceof Error && error.message.startsWith(OneClickError.CONFIG_MISMATCH)) {
+        throw error;
+      }
     }
   }
 
@@ -98,104 +140,145 @@ export class OneClickAuthService {
       // 定义监听器
       const listener: TokenResultListener = {
         onSuccess: (msg: string) => {
-          console.info('[OneClickAuthService] onSuccess:', msg);
+          console.info('[OneClickAuthService] onSuccess raw:', msg);
+          this.clearTimeoutTimer();
           try {
-             // msg 格式: {"_code":"600000", "_token":"...", "_requestId": "..."}
+             // 兼容 _code/code, _token/token, _requestId/requestId, _msg/msg
              const res = JSON.parse(msg) as Record<string, Object>;
-             const code = res['_code'] as string;
-             const token = res['_token'] as string;
-             const requestId = res['_requestId'] as string;
-             console.info(`[OneClickAuthService] onSuccess code=${code}, requestId=${requestId}`);
+             const code = (res['_code'] || res['code']) as string;
+             const token = (res['_token'] || res['token']) as string;
+             const requestId = (res['_requestId'] || res['requestId']) as string;
+             const sdkMsg = (res['_msg'] || res['msg'] || '') as string;
+             console.info(`[OneClickAuthService] onSuccess code=${code}, msg=${sdkMsg}, requestId=${requestId}`);
              
              if (code === '600000' && token) {
                 if (this.tokenResolve) this.tokenResolve(token);
                 this.cleanup();
              } else if (code === '600001') {
-                // 唤起授权页成功，等待用户操作，不 resolve
                 console.info('[OneClickAuthService] Auth page presented');
              } else {
-                console.warn('[OneClickAuthService] Unexpected success code:', code);
+                // 将配置类错误码映射为 CONFIG_MISMATCH
+                const errorType = this.classifyErrorCode(code);
+                console.warn(`[OneClickAuthService] Unexpected success code=${code}, msg=${sdkMsg}, requestId=${requestId}, mapped=${errorType}`);
+                if (this.tokenReject) this.tokenReject(new Error(`${errorType}:${code}`));
+                this.cleanup();
              }
           } catch (e) {
              console.error('[OneClickAuthService] Parse success msg failed:', e);
-             if (this.tokenReject) this.tokenReject(new Error(OneClickError.UNKNOWN));
+             if (this.tokenReject) this.tokenReject(new Error(`${OneClickError.UNKNOWN}:PARSE_ERROR`));
              this.cleanup();
           }
         },
         onFailure: (ret: string) => {
-          console.warn('[OneClickAuthService] onFailure:', ret);
-          // ret 格式: {"_code":"...", "_msg":"..."}
+          console.warn('[OneClickAuthService] onFailure raw:', ret);
+          this.clearTimeoutTimer();
+          
           let errorType = OneClickError.UNKNOWN;
+          let rawCode = 'UNKNOWN';
+          let rawMsg = '';
+          let rawRequestId = '';
+          
           try {
              const res = JSON.parse(ret) as Record<string, Object>;
-             const code = res['_code'] as string;
+             rawCode = (res['_code'] || res['code'] || 'UNKNOWN') as string;
+             rawMsg = (res['_msg'] || res['msg'] || '') as string;
+             rawRequestId = (res['_requestId'] || res['requestId'] || '') as string;
              
-             // 错误码映射
-             switch (code) {
-               case '700000': // 用户点击返回/取消
-                 errorType = OneClickError.USER_CANCELLED;
-                 break;
-               case '600004': // 获取 Token 失败
-               case '600010': // 运营商未知错误
-               case '600011': // 获取 token 失败
-                 errorType = OneClickError.CARRIER_ERROR;
-                 break;
-               case '600005': // 手机号校验失败
-               case '600007': // 网络错误
-               case '600008': // 无蜂窝网络
-               case '600013': // 运营商维护
-               case '600014': // 运营商维护
-               case '600015': // 接口超时
-               case '600028': // 唤起授权页失败
-                 errorType = OneClickError.NETWORK_ERROR;
-                 break;
-               case '600024': // 终端环境检查失败
-               case '600025': // 环境检测失败
-                 errorType = OneClickError.SDK_NOT_AVAILABLE;
-                 break;
-               default:
-                 errorType = OneClickError.UNKNOWN;
-                 break;
-             }
+             console.warn(`[OneClickAuthService] onFailure code=${rawCode}, msg=${rawMsg}, requestId=${rawRequestId}`);
+             
+             errorType = this.classifyErrorCode(rawCode);
           } catch (e) {
              console.error('[OneClickAuthService] Parse failure msg failed:', e);
           }
 
-          if (this.tokenReject) this.tokenReject(new Error(errorType));
+          if (this.tokenReject) this.tokenReject(new Error(`${errorType}:${rawCode}`));
           this.cleanup();
         }
       };
 
       // 超时保护
-      const timer = setTimeout(() => {
+      this.timeoutTimer = setTimeout(() => {
         if (this.tokenReject) {
             console.warn('[OneClickAuthService] requestToken timeout');
-            this.tokenReject(new Error(OneClickError.TIMEOUT));
+            this.tokenReject(new Error(`${OneClickError.TIMEOUT}:5000`));
             this.cleanup();
         }
       }, 5000);
 
-      // 重新绑定监听器
+      // 重新绑定监听器并确保密钥注入
       try {
+        // 校验密钥
+        const sdkInfo = this.getValidatedSecret();
+        console.info(`[OneClickAuthService] requestToken sdkInfo: ${this.secretSummary(sdkInfo)}`);
+
         this.authHelper = PhoneNumberAuthHelper.getInstance(context, listener);
         
-        // 配置 UI（必调方法）
+        // 每次 requestToken 都重新注入密钥，防止 getInstance 重建后丢失
+        this.authHelper.setAuthSDKInfo(sdkInfo);
+        
+        // 使用 SDK 弹窗模式，规避全屏授权页在部分机型上的布局错位
+        this.authHelper.setDialog(true);
+
         let uiConfig = new AuthUiConfig();
-        // ... ui config ...
+        uiConfig.pageScreenOrientation = PageOrientation.PORTRAIT;
+        uiConfig.dialogWidth = '92%';
+        uiConfig.dialogHeight = '78%';
+        uiConfig.dialogAutoCancel = false;
+
+        // 显式设置关键颜色，避免主题干扰导致"看不见但可点"
+        uiConfig.numberFontColor = '#111111';
+        uiConfig.privacyFontColor = '#333333';
+        uiConfig.loginBtnFontColor = '#FFFFFF';
+        uiConfig.loginBtnBackGroundColor = '#4F46E5';
+        uiConfig.loginBtnDisableBackGroundColor = '#BDBDF6';
+
         this.authHelper.setAuthConfig(uiConfig);
         
         // 拉起授权页
         this.authHelper.getLoginToken(5000);
       } catch (err) {
-        clearTimeout(timer); // 清除定时器
+        this.clearTimeoutTimer();
         console.error('[OneClickAuthService] getLoginToken exception:', err);
-        reject(new Error(OneClickError.SDK_NOT_AVAILABLE));
+        // 区分密钥为空 vs SDK 异常
+        const errMsg = (err instanceof Error) ? err.message : '';
+        if (errMsg.startsWith(OneClickError.CONFIG_MISMATCH)) {
+          reject(err as Error);
+        } else {
+          reject(new Error(`${OneClickError.SDK_NOT_AVAILABLE}:EXCEPTION`));
+        }
         this.cleanup();
       }
     });
   }
 
+  /**
+   * 将 SDK 错误码归类为 OneClickError 枚举
+   */
+  private classifyErrorCode(code: string): OneClickError {
+    switch (code) {
+      case '700000': return OneClickError.USER_CANCELLED;
+      case '600004':
+      case '600010':
+      case '600011': return OneClickError.CARRIER_ERROR;
+      case '600016':  // 配置项无效
+      case '600017':  // 密钥/方案不匹配
+      case '600020':  // 方案不存在
+      case '600021': return OneClickError.CONFIG_MISMATCH;  // 方案状态异常
+      case '600005':
+      case '600007':
+      case '600008':
+      case '600013':
+      case '600014':
+      case '600015':
+      case '600028': return OneClickError.NETWORK_ERROR;
+      case '600024':
+      case '600025': return OneClickError.SDK_NOT_AVAILABLE;
+      default: return OneClickError.UNKNOWN;
+    }
+  }
+
   private cleanup() {
+    this.clearTimeoutTimer();
     try {
       this.authHelper?.quitLoginPage();
       this.authHelper?.setAuthListener({
@@ -207,6 +290,13 @@ export class OneClickAuthService {
     }
     this.tokenResolve = undefined;
     this.tokenReject = undefined;
+  }
+
+  private clearTimeoutTimer() {
+    if (this.timeoutTimer !== -1) {
+      clearTimeout(this.timeoutTimer);
+      this.timeoutTimer = -1;
+    }
   }
 }
 

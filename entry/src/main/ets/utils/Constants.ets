@@ -15,7 +15,10 @@ export const API_BASE_URL: string = UNIFIED_BASE_URL;
 export const APP_ID: string = 'lingai-harmony';
 export const AUTH_APP_ID: string = '1';
 // ---- 一键登录（阿里云 PNVS）----
-export const PNVS_AUTH_SECRET: string = '***REMOVED***';  // 运行时注入或本地调试时填写，勿提交到仓库
+// 当前生效方案：LingAI-HarmonyOS 号码认证  |  更新时间：2026-02-13
+// ⚠️ 占位值——请勿将真实密钥提交到仓库
+// 本地调试：调用 OneClickAuthService.getInstance().overrideSecret('真实密钥') 注入
+export const PNVS_AUTH_SECRET: string = '***REMOVED***';
 export const BIZ_API_PREFIX: string = '/api/app/biz';
 export const AUTH_API_PREFIX: string = '/api/app/auth';
 

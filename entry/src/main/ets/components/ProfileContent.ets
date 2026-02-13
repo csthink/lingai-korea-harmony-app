@@ -142,23 +142,46 @@ export struct ProfileContent {
       this.isOneClickLoading = false;
       console.error('[ProfileContent] One-click login failed:', error);
       
-      let errorMsg = '一键登录失败，请尝试短信登录';
-      
-      // 错误映射
-      if (error instanceof Error) {
-         if (error.message === OneClickError.USER_CANCELLED) {
-           errorMsg = '用户取消授权';
-         } else if (error.message === OneClickError.NO_SIM) {
-           errorMsg = '请检查SIM卡和网络连接';
-         } else if (error.message === OneClickError.SDK_NOT_AVAILABLE) {
-           errorMsg = '一键登录暂不可用'; // Stub 模式会走到这里
-         } else if (error.message === OneClickError.NETWORK_ERROR) {
-            errorMsg = '网络连接失败';
-         }
+      let toastMsg = '一键登录失败，已切换短信登录';
+
+      if (error instanceof ApiError) {
+        // 后端业务错误
+        toastMsg = `一键登录失败（${error.message}），已切换短信登录`;
+        console.error(`[ProfileContent] Backend Error traceId=${error.traceId}`);
+      } else {
+        // SDK/网络错误 (格式: TYPE:CODE)
+        const rawMsg = (error as Error).message || ''; 
+        const parts = rawMsg.split(':');
+        const type = parts[0];
+        const code = parts[1] || '';
+
+        switch (type) {
+          case OneClickError.USER_CANCELLED:
+            toastMsg = '用户取消授权，已切换短信登录';
+            break;
+          case OneClickError.NO_SIM:
+            toastMsg = '未检测到SIM卡，已切换短信登录';
+            break;
+          case OneClickError.NETWORK_ERROR:
+            toastMsg = `网络连接失败（${code}），已切换短信登录`;
+            break;
+          case OneClickError.TIMEOUT:
+            toastMsg = `请求超时（${code}），已切换短信登录`;
+            break;
+          case OneClickError.CARRIER_ERROR:
+            toastMsg = `运营商鉴权失败（${code}），已切换短信登录`;
+            break;
+          case OneClickError.SDK_NOT_AVAILABLE:
+            toastMsg = `环境不支持一键登录（${code}），已切换短信登录`;
+            break;
+          default:
+            toastMsg = `一键登录失败（${rawMsg}），已切换短信登录`;
+            break;
+        }
       }
       
-      this.oneClickErrorMsg = errorMsg;
-      promptAction.showToast({ message: errorMsg, duration: 2000 });
+      this.oneClickErrorMsg = toastMsg;
+      promptAction.showToast({ message: toastMsg, duration: 3000 });
       
       // 失败后展开短信登录
       this.showSmsFallback = true;

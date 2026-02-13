@@ -19,6 +19,10 @@
     {
       "name": "network_info_permission_reason",
       "value": "用于判断网络环境以提供一键登录服务"
+    },
+    {
+      "name": "set_network_info_permission_reason",
+      "value": "用于一键登录时切换蜂窝数据通道完成运营商认证"
     }
   ]
 }

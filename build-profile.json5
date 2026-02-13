@@ -5,12 +5,12 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "certpath": "/Users/mars/.ohos/config/default_app_ByHDQPIV-ajM3eDQKNqxaQnvr5FvjDtGaNwvyejcci8=.cer",
+          "certpath": "/Users/mars/.ohos/config/default_lingai-korea-harmony-app_XYYlA8tmtvuScBFvCOrPD_UY6AS0N3I96zvjd0UmI6c=.cer",
           "keyAlias": "debugKey",
           "keyPassword": "***REMOVED***",
-          "profile": "/Users/mars/.ohos/config/default_app_ByHDQPIV-ajM3eDQKNqxaQnvr5FvjDtGaNwvyejcci8=.p7b",
+          "profile": "/Users/mars/.ohos/config/lingai-debug-691759Debug.p7b",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "/Users/mars/.ohos/config/default_app_ByHDQPIV-ajM3eDQKNqxaQnvr5FvjDtGaNwvyejcci8=.p12",
+          "storeFile": "/Users/mars/.ohos/config/default_lingai-korea-harmony-app_XYYlA8tmtvuScBFvCOrPD_UY6AS0N3I96zvjd0UmI6c=.p12",
           "storePassword": "***REMOVED***"
         }
       }

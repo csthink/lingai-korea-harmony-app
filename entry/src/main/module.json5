@@ -26,6 +26,14 @@
           "abilities": ["EntryAbility"],
           "when": "always"
         }
+      },
+      {
+        "name": "ohos.permission.SET_NETWORK_INFO",
+        "reason": "$string:set_network_info_permission_reason",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "always"
+        }
       }
     ],
     "abilities": [
