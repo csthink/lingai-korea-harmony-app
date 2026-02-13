@@ -41,6 +41,9 @@ export struct ProfileContent {
   @State isOneClickLoading: boolean = false;
   @State showSmsFallback: boolean = false;
   @State oneClickErrorMsg: string = '';
+  @State oneClickCooldownSec: number = 0;  // 一键登录冷却倒计时
+  private oneClickCooldownTimer: number = -1;
+
 
   // 任务数据
   @State lessonCount: number = 13;
@@ -129,6 +132,7 @@ export struct ProfileContent {
       const oneClickService = OneClickAuthService.getInstance();
       const apiService = ApiService.getInstance();
       
+       
       // 1. 拉起授权页获取 Token
       const accessToken = await oneClickService.requestToken(context);
       
@@ -143,11 +147,17 @@ export struct ProfileContent {
       console.error('[ProfileContent] One-click login failed:', error);
       
       let toastMsg = '一键登录失败，已切换短信登录';
+      let shouldCooldown = false;
 
       if (error instanceof ApiError) {
         // 后端业务错误
         toastMsg = `一键登录失败（${error.message}），已切换短信登录`;
         console.error(`[ProfileContent] Backend Error traceId=${error.traceId}`);
+        
+        // 3008: 请求过于频繁
+        if (error.code === 3008) {
+           shouldCooldown = true;
+        }
       } else {
         // SDK/网络错误 (格式: TYPE:CODE)
         const rawMsg = (error as Error).message || ''; 
@@ -174,11 +184,22 @@ export struct ProfileContent {
           case OneClickError.SDK_NOT_AVAILABLE:
             toastMsg = `环境不支持一键登录（${code}），已切换短信登录`;
             break;
+          case OneClickError.RATE_LIMIT:
+            toastMsg = `请求过于频繁，请稍后重试，已切换短信登录`;
+            shouldCooldown = true;
+            break;
           default:
             toastMsg = `一键登录失败（${rawMsg}），已切换短信登录`;
             break;
         }
       }
+      
+      if (shouldCooldown) {
+        this.startOneClickCooldown();
+        toastMsg = '请求频繁，请 8 秒后重试，已可切换短信登录';
+      }
+      
+      this.oneClickErrorMsg = toastMsg;
       
       this.oneClickErrorMsg = toastMsg;
       promptAction.showToast({ message: toastMsg, duration: 3000 });
@@ -210,6 +231,21 @@ export struct ProfileContent {
       this.unsubscribeTheme();
       this.unsubscribeTheme = null;
     }
+    if (this.oneClickCooldownTimer !== -1) {
+      clearInterval(this.oneClickCooldownTimer);
+      this.oneClickCooldownTimer = -1;
+    }
+  }
+
+  startOneClickCooldown() {
+    this.oneClickCooldownSec = 8;
+    this.oneClickCooldownTimer = setInterval(() => {
+      this.oneClickCooldownSec--;
+      if (this.oneClickCooldownSec <= 0) {
+        clearInterval(this.oneClickCooldownTimer);
+        this.oneClickCooldownTimer = -1;
+      }
+    }, 1000);
   }
 
   build() {
@@ -802,14 +838,18 @@ export struct ProfileContent {
           // 一键登录入口
           if (this.oneClickEnabled) {
             Column() {
-              Button(this.isOneClickLoading ? '正在启动...' : '本机号码一键登录')
+              Button(
+                this.isOneClickLoading ? '正在启动...' : 
+                (this.oneClickCooldownSec > 0 ? `${this.oneClickCooldownSec}s 后重试` : '本机号码一键登录')
+              )
                 .type(ButtonType.Capsule)
-                .backgroundColor('#6366f1')
+                .backgroundColor(this.oneClickCooldownSec > 0 ? '#94a3b8' : '#6366f1')
                 .fontColor('#ffffff')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
                 .width('100%')
                 .height(54)
+                .enabled(!this.isOneClickLoading && this.oneClickCooldownSec <= 0)
                 .onClick(() => {
                   this.performOneClickLogin();
                 })

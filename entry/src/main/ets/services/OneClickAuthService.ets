@@ -15,6 +15,7 @@ export enum OneClickError {
   SDK_NOT_AVAILABLE = 'SDK_NOT_AVAILABLE',    // SDK 不可用
   UNKNOWN = 'UNKNOWN',                        // 未知错误
   TIMEOUT = 'TIMEOUT',                        // 请求超时
+  RATE_LIMIT = 'RATE_LIMIT',                  // 请求过于频繁 (Throttling.User)
 }
 
 export class OneClickAuthService {
@@ -181,7 +182,13 @@ export class OneClickAuthService {
              
              console.warn(`[OneClickAuthService] onFailure code=${rawCode}, requestId=${requestId}`);
              
-             errorType = this.classifyErrorCode(rawCode);
+             // 检查是否为限流 (Throttling.User 或 消息包含 flow control)
+             const rawMsg = (res['_msg'] || res['msg'] || res['message'] || '') as string;
+             if (rawCode === 'Throttling.User' || rawMsg.toLowerCase().includes('flow control')) {
+               errorType = OneClickError.RATE_LIMIT;
+             } else {
+               errorType = this.classifyErrorCode(rawCode);
+             }
           } catch (e) {
              console.error('[OneClickAuthService] Parse failure msg failed');
           }
