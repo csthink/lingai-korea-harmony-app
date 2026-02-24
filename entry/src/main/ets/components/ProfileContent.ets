@@ -159,9 +159,10 @@ export struct ProfileContent {
     const apiService = ApiService.getInstance();
     const hasTokenBefore = apiService.getToken().length > 0;
     
+    const oneClickService = OneClickAuthService.getInstance();
+    
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      const oneClickService = OneClickAuthService.getInstance();
        
       // 1. 拉起授权页获取 Token
       const accessToken = await oneClickService.requestToken(context);
@@ -202,6 +203,19 @@ export struct ProfileContent {
         const code = parts[1] || '';
 
         switch (type) {
+          case OneClickError.SUPERSEDED:
+            // 被新请求顶替，静默忽略，不弹 Toast，不断开 loading
+            return;
+          case OneClickError.AUTH_PAGE_CLOSED:
+            this.isOneClickLoading = false;
+            if (this.showMainSheet) {
+              this.showSmsFallback = true;
+              toastMsg = '授权页已关闭，已切换短信登录';
+              promptAction.showToast({ message: toastMsg, duration: 3000 });
+            } else {
+              console.info('[ProfileContent] Auth page closed and returned to profile silently.');
+            }
+            return;
           case OneClickError.USER_CANCELLED:
             toastMsg = '用户取消授权，已切换短信登录';
             break;
@@ -212,6 +226,11 @@ export struct ProfileContent {
             toastMsg = `网络连接失败（${code}），已切换短信登录`;
             break;
           case OneClickError.TIMEOUT:
+            if (oneClickService.isAuthPageVisible()) {
+              console.warn('[ProfileContent] Ignored timeout because auth page is still actively presented.');
+              this.isOneClickLoading = false;
+              return;
+            }
             toastMsg = `请求超时（${code}），已切换短信登录`;
             break;
           case OneClickError.CARRIER_ERROR:

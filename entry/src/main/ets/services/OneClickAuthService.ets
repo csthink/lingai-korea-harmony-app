@@ -8,14 +8,35 @@ import PhoneNumberAuthHelper, { TokenResultListener, AuthUiConfig, PageOrientati
 
 export enum OneClickError {
   USER_CANCELLED = 'USER_CANCELLED',          // 用户取消授权
+  AUTH_PAGE_CLOSED = 'AUTH_PAGE_CLOSED',      // 授权页被关闭
   NETWORK_ERROR = 'NETWORK_ERROR',            // 网络问题
   CARRIER_ERROR = 'CARRIER_ERROR',            // 运营商校验失败
   CONFIG_MISMATCH = 'CONFIG_MISMATCH',        // SDK 密钥/方案配置错误（600017 等）
   NO_SIM = 'NO_SIM',                          // 无 SIM / 飞行模式
   SDK_NOT_AVAILABLE = 'SDK_NOT_AVAILABLE',    // SDK 不可用
-  UNKNOWN = 'UNKNOWN',                        // 未知错误
   TIMEOUT = 'TIMEOUT',                        // 请求超时
   RATE_LIMIT = 'RATE_LIMIT',                  // 请求过于频繁 (Throttling.User)
+  SUPERSEDED = 'SUPERSEDED',                  // 被新的请求顶替
+  UNKNOWN = 'UNKNOWN',                        // 未知错误
+}
+
+// 事件映射与状态机：
+// | SDK Code / Event | User Action | Semantic | State Transition | Promise Action |
+// | 700000 / .authpage.return | Click back on Auth Page | AUTH_PAGE_CLOSED | AUTH_PAGE -> FAILED | reject(AUTH_PAGE_CLOSED) |
+// | .dialog.cancel / 700004 | Click Cancel on Protocol Dialog | PROTOCOL_CANCELLED | PROTOCOL_DIALOG -> AUTH_PAGE | Do nothing to Promise |
+// | 600000 | Token fetch success | SUCCESS | * -> SUCCESS | resolve(token) |
+// | 600001 | Auth page presented | N/A | IDLE -> AUTH_PAGE | None |
+// | .dialog.agree / 600006 | Click Agree / Start Fetch | SUBMITTING | PROTOCOL_DIALOG/AUTH_PAGE -> SUBMITTING | Do nothing to Promise |
+// | UI Click Events | Pure UI interactions | N/A | No changes | Do nothing to Promise |
+// | Unrecognized / Default | Terminal Error | FAILED | * -> FAILED | reject(Error) |
+
+export enum AuthState {
+  IDLE = 'IDLE',
+  AUTH_PAGE = 'AUTH_PAGE',
+  PROTOCOL_DIALOG = 'PROTOCOL_DIALOG',
+  SUBMITTING = 'SUBMITTING',
+  SUCCESS = 'SUCCESS',
+  FAILED = 'FAILED'
 }
 
 export class OneClickAuthService {
@@ -23,19 +44,27 @@ export class OneClickAuthService {
   private initialized: boolean = false;
   private authHelper: PhoneNumberAuthHelper | undefined;
   
+  // 状态机与并发控制
+  private currentState: AuthState = AuthState.IDLE;
+  private requestCounter: number = 0;
+  private currentAttemptId: number = -1;
+  private authPageVisibility: boolean = false;
+
   // 当前请求的 Promise Resolver
   private tokenResolve: ((value: string) => void) | undefined;
   private tokenReject: ((reason?: Error) => void) | undefined;
   private timeoutTimer: number = -1;
   // 运行时密钥覆盖（优先于 Constants 中的占位值）
   private secretOverride: string = '';
-  private cancelledByUser: boolean = false;
-  // 请求是否已终结（避免重复 resolve/reject）
-  private requestSettled: boolean = false;
-  // 授权页是否已显示（用于判断是否需要 quitLoginPage）
-  private authPageShown: boolean = false;
 
   private constructor() {}
+
+  /**
+   * 是否正处于授权页展示状态
+   */
+  public isAuthPageVisible(): boolean {
+    return this.authPageVisibility || this.currentState === AuthState.PROTOCOL_DIALOG;
+  }
 
   /**
    * 运行时注入真实密钥（用于本地调试，不提交到仓库）
@@ -129,26 +158,94 @@ export class OneClickAuthService {
   }
 
   /**
+   * 统一结束单次一键登录流程
+   */
+  private finalizeAttempt(attemptId: number, isSuccess: boolean, result: string | Error) {
+    if (this.currentAttemptId !== attemptId) {
+      console.warn(`[OneClickAuthService] finalizeAttempt dropped: target=${attemptId}, current=${this.currentAttemptId}`);
+      return;
+    }
+
+    this.clearSubmittingTimeoutTimer();
+    const finalState = isSuccess ? AuthState.SUCCESS : AuthState.FAILED;
+    this.currentState = finalState;
+
+    if (isSuccess && this.tokenResolve) {
+      const token = result as string;
+      console.info(`[OneClick] attemptId=${attemptId} state=${finalState} semantic=TOKEN_FETCH_SUCCESS code=600000 traceId=N/A`);
+      // 仅成功时且授权页仍可见时关闭，防竞态
+      if (this.authPageVisibility) {
+        try {
+          this.authHelper?.quitLoginPage();
+        } catch (e) {
+          console.error(`[OneClickAuthService] quitLoginPage error: ${e}`);
+        }
+      }
+      this.authPageVisibility = false;
+      this.tokenResolve(token);
+    } else if (!isSuccess && this.tokenReject) {
+      const err = result as Error;
+      let rawCode = 'UNKNOWN';
+      try {
+        const parts = err.message.split(':');
+        if (parts.length > 1) rawCode = parts[1];
+      } catch (e) {}
+      console.error(`[OneClick] attemptId=${attemptId} state=${finalState} semantic=${err.message.split(':')[0]} code=${rawCode} traceId=N/A`);
+      
+      this.authPageVisibility = false; // 错误流由 SDK 控制关闭，或用户主动关闭
+      this.tokenReject(err);
+    }
+
+    // 清理状态
+    this.currentAttemptId = -1;
+    this.tokenResolve = undefined;
+    this.tokenReject = undefined;
+    
+    try {
+      this.authHelper?.setAuthListener({
+        onSuccess: (_msg: string) => {},
+        onFailure: (_ret: string) => {}
+      });
+    } catch (e) {
+      console.warn('[OneClickAuthService] Cleanup error:', e);
+    }
+  }
+
+  /**
    * 拉起授权页并获取 Token
    */
   async requestToken(context: common.UIAbilityContext): Promise<string> {
     if (!this.initialized) await this.init(context);
     
-    // 如果 SDK 仍未初始化成功（可能是环境问题），抛出 SDK 不可用异常
     if (!this.authHelper) {
       throw new Error(OneClickError.SDK_NOT_AVAILABLE);
     }
 
-    this.cancelledByUser = false;
-    this.requestSettled = false;
-    this.authPageShown = false;
+    // 并发顶替：如果有未决定的请求，直接终结为 SUPERSEDED
+    if (this.currentAttemptId !== -1) {
+      console.warn(`[OneClickAuthService] concurrent call detected. Superseding attemptId=${this.currentAttemptId}`);
+      this.finalizeAttempt(this.currentAttemptId, false, new Error(`${OneClickError.SUPERSEDED}:CONCURRENT_CALL`));
+    }
 
-    // 监听 UI 点击事件 (仅标记取消状态，逻辑统一在 onFailure 700000 处理)
+    this.currentState = AuthState.IDLE;
+    const thisAttemptId = ++this.requestCounter;
+    this.currentAttemptId = thisAttemptId;
+
+    // 监听 UI 点击事件
     const uiClickListener: AuthUIControlClickListener = {
       onClick: (code: string, jsonString: string) => {
         console.info(`[OneClickAuthService] UI Click: code=${code}`);
-        if (code === '700000' || code === '.authpage.return' || code === 'sdk.quit.auth' || code === '.authpage.switch') {
-          this.cancelledByUser = true;
+        if (code === '700000' || code === '.authpage.return' || code === 'sdk.quit.auth') {
+           // 会在 onFailure 里抛错，这里只做预标记（如有需要）
+        } else if (code === '700004' || code === '700007' || code === '700009' || code === '.dialog.cancel') {
+           this.currentState = AuthState.AUTH_PAGE;
+           this.clearSubmittingTimeoutTimer();
+           console.info(`[OneClickAuthService] Protocol cancel. state returned to AUTH_PAGE`);
+        } else if (code === '700006' || code === '.dialog.open') {
+           this.currentState = AuthState.PROTOCOL_DIALOG;
+        } else if (code === '.dialog.agree') {
+           this.currentState = AuthState.SUBMITTING;
+           this.startSubmittingTimeoutTimer(thisAttemptId);
         }
       }
     };
@@ -158,56 +255,33 @@ export class OneClickAuthService {
       this.tokenResolve = resolve;
       this.tokenReject = reject;
       
-      // 定义监听器
       const listener: TokenResultListener = {
         onSuccess: (msg: string) => {
-          if (this.requestSettled) return;
-          this.clearTimeoutTimer();
-          
-          if (this.cancelledByUser) {
-            console.warn('[OneClickAuthService] Token received but cancelled by user, ignoring.');
-            return;
-          }
+          if (this.currentAttemptId !== thisAttemptId) return;
 
           try {
-             // 兼容 _code/code, _token/token, _requestId/requestId, _msg/msg
              const res = JSON.parse(msg) as Record<string, Object>;
              const code = (res['_code'] || res['code']) as string;
              const token = (res['_token'] || res['token']) as string;
-             const requestId = (res['_requestId'] || res['requestId']) as string;
              
              if (code === '600000' && token) {
-                if (this.tokenResolve) {
-                   this.authHelper?.quitLoginPage();
-                   this.requestSettled = true;
-                   this.tokenResolve(token);
-                }
-                this.cleanup();
+                this.finalizeAttempt(thisAttemptId, true, token);
              } else if (code === '600001') {
-                // Auth page presented
-                this.authPageShown = true;
+                this.authPageVisibility = true;
+                this.currentState = AuthState.AUTH_PAGE;
+             } else if (code === '600006') {
+                this.currentState = AuthState.SUBMITTING;
+                this.startSubmittingTimeoutTimer(thisAttemptId);
              } else {
-                // 将配置类错误码映射为 CONFIG_MISMATCH
-                const errorType = this.classifyErrorCode(code);
-                console.warn(`[OneClickAuthService] Unexpected success code=${code}, requestId=${requestId}, mapped=${errorType}`);
-                if (this.tokenReject) {
-                   this.requestSettled = true;
-                   this.tokenReject(new Error(`${errorType}:${code}`));
-                }
-                this.cleanup();
+                // Ignore unexpected codes instead of failing early, or map carefully
              }
           } catch (e) {
              console.error('[OneClickAuthService] Parse success msg failed');
-             if (this.tokenReject) {
-                this.requestSettled = true;
-                this.tokenReject(new Error(`${OneClickError.UNKNOWN}:PARSE_ERROR`));
-             }
-             this.cleanup();
+             this.finalizeAttempt(thisAttemptId, false, new Error(`${OneClickError.UNKNOWN}:PARSE_ERROR`));
           }
         },
         onFailure: (ret: string) => {
-          if (this.requestSettled) return;
-          this.clearTimeoutTimer();
+          if (this.currentAttemptId !== thisAttemptId) return;
           
           let errorType = OneClickError.UNKNOWN;
           let rawCode = 'UNKNOWN';
@@ -215,11 +289,19 @@ export class OneClickAuthService {
           try {
              const res = JSON.parse(ret) as Record<string, Object>;
              rawCode = (res['_code'] || res['code'] || 'UNKNOWN') as string;
-             const requestId = (res['_requestId'] || res['requestId'] || '') as string;
              
-             console.warn(`[OneClickAuthService] onFailure code=${rawCode}, requestId=${requestId}`);
+             console.warn(`[OneClickAuthService] onFailure code=${rawCode} state=${this.currentState}`);
              
-             // 检查是否为限流 (Throttling.User 或 消息包含 flow control)
+             // 过滤纯 UI 事件与非终态取消
+             if (rawCode === '700004' || rawCode === '700007' || rawCode === '700009' || rawCode === '.dialog.cancel') {
+                this.currentState = AuthState.AUTH_PAGE;
+                this.clearSubmittingTimeoutTimer();
+                return; // 不决议 promise
+             }
+             if (rawCode.startsWith('70000') && rawCode !== '700000') {
+                return; // 忽略其它 UI click 事件 (如 700002 切换登录方式埋点等，避免阻断)
+             }
+             
              const rawMsg = (res['_msg'] || res['msg'] || res['message'] || '') as string;
              if (rawCode === 'Throttling.User' || rawMsg.toLowerCase().includes('flow control')) {
                errorType = OneClickError.RATE_LIMIT;
@@ -230,29 +312,11 @@ export class OneClickAuthService {
              console.error('[OneClickAuthService] Parse failure msg failed');
           }
 
-          if (this.tokenReject) {
-             this.requestSettled = true;
-             this.tokenReject(new Error(`${errorType}:${rawCode}`));
-          }
-          this.cleanup();
+          this.finalizeAttempt(thisAttemptId, false, new Error(`${errorType}:${rawCode}`));
         }
       };
-
-      // 超时保护
-      this.timeoutTimer = setTimeout(() => {
-        if (!this.requestSettled && this.tokenReject) {
-            console.warn('[OneClickAuthService] requestToken timeout');
-            this.requestSettled = true;
-            this.tokenReject(new Error(`${OneClickError.TIMEOUT}:5000`));
-            
-            // 仅在已显示授权页且超时的情况下尝试关闭
-            if (this.authPageShown) {
-               this.authHelper?.quitLoginPage();
-            }
-            this.cleanup();
-        }
-      }, 5000);
-
+      // 移除原有的全局超时保护，此超时已平移到 SUBMITTING 阶段
+      
       // 重新绑定监听器并确保密钥注入
       try {
         // 校验密钥
@@ -313,26 +377,24 @@ export class OneClickAuthService {
         // 拉起授权页
         this.authHelper.getLoginToken(5000);
       } catch (err) {
-        this.clearTimeoutTimer();
-        console.error('[OneClickAuthService] getLoginToken exception:', err);
-        // 区分密钥为空 vs SDK 异常
-        const errMsg = (err instanceof Error) ? err.message : '';
-        if (errMsg.startsWith(OneClickError.CONFIG_MISMATCH)) {
-          reject(err as Error);
-        } else {
-          reject(new Error(`${OneClickError.SDK_NOT_AVAILABLE}:EXCEPTION`));
+        if (this.currentAttemptId === thisAttemptId) {
+          const errMsg = (err instanceof Error) ? err.message : '';
+          const isConfigMismatch = errMsg.startsWith(OneClickError.CONFIG_MISMATCH);
+          const errorToThrow = isConfigMismatch 
+            ? (err as Error) 
+            : new Error(`${OneClickError.SDK_NOT_AVAILABLE}:EXCEPTION`);
+            
+          this.finalizeAttempt(thisAttemptId, false, errorToThrow);
         }
-        this.cleanup();
       }
     });
   }
 
-  /**
-   * 将 SDK 错误码归类为 OneClickError 枚举
-   */
   private classifyErrorCode(code: string): OneClickError {
     switch (code) {
-      case '700000': return OneClickError.USER_CANCELLED;
+      case '700000': 
+      case '.authpage.return':
+        return OneClickError.AUTH_PAGE_CLOSED;
       case '600004':
       case '600010':
       case '600011': return OneClickError.CARRIER_ERROR;
@@ -353,26 +415,22 @@ export class OneClickAuthService {
     }
   }
 
-  private cleanup() {
-    this.clearTimeoutTimer();
-    try {
-      // 移除主动 quitLoginPage，避免干扰正常流程或重复调用
-      this.authHelper?.setAuthListener({
-        onSuccess: (_msg: string) => {},
-        onFailure: (_ret: string) => {}
-      });
-    } catch (e) {
-      console.warn('[OneClickAuthService] Cleanup error:', e);
-    }
-    this.tokenResolve = undefined;
-    this.tokenReject = undefined;
-  }
-
-  private clearTimeoutTimer() {
+  private clearSubmittingTimeoutTimer() {
     if (this.timeoutTimer !== -1) {
       clearTimeout(this.timeoutTimer);
       this.timeoutTimer = -1;
     }
+  }
+
+  private startSubmittingTimeoutTimer(attemptId: number) {
+    this.clearSubmittingTimeoutTimer();
+    this.timeoutTimer = setTimeout(() => {
+      // 严格门禁：必须仍在 SUBMITTING 态且为同一 attempt
+      if (this.currentAttemptId === attemptId && this.currentState === AuthState.SUBMITTING) {
+          console.warn(`[OneClickAuthService] submitting timeout attemptId=${attemptId}`);
+          this.finalizeAttempt(attemptId, false, new Error(`${OneClickError.TIMEOUT}:5000`));
+      }
+    }, 5000);
   }
 
 
