@@ -449,7 +449,7 @@ class ApiService {
   /**
    * 一键登录
    */
-  async loginByOneClick(accessToken: string, context: Context): Promise<string> {
+  async loginByOneClick(accessToken: string, context: Context, attemptId?: number): Promise<string> {
     const url = `${API_BASE_URL}${AUTH_API_PREFIX}/login/one-click`;
     
     const body = JSON.stringify({
@@ -462,13 +462,18 @@ class ApiService {
     });
 
     try {
+      const finalHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-App-Id': AUTH_APP_ID,
+        'X-Device-Id': this.deviceId,
+      };
+      if (attemptId !== undefined) {
+        finalHeaders['X-Client-Attempt-Id'] = attemptId.toString();
+      }
+
       const response = await this.httpClient.request(url, {
         method: http.RequestMethod.POST,
-        header: {
-          'Content-Type': 'application/json',
-          'X-App-Id': AUTH_APP_ID,
-          'X-Device-Id': this.deviceId,
-        },
+        header: finalHeaders,
         extraData: body,
         connectTimeout: 10000,
         readTimeout: 15000,

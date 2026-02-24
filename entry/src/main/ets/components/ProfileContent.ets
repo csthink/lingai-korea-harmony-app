@@ -163,12 +163,14 @@ export struct ProfileContent {
     
     try {
       const context = getContext(this) as common.UIAbilityContext;
-       
       // 1. 拉起授权页获取 Token
       const accessToken = await oneClickService.requestToken(context);
       
+      // 记录下本次的 attemptId
+      const currentAttemptId = oneClickService.getCurrentAttemptId();
+      
       // 2. 调用服务端一键登录
-      await apiService.loginByOneClick(accessToken, context);
+      await apiService.loginByOneClick(accessToken, context, currentAttemptId);
       
       // 3. 登录成功处理
       this.handleLoginSuccess();

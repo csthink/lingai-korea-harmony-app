@@ -67,6 +67,13 @@ export class OneClickAuthService {
   }
 
   /**
+   * 获取当前的 attemptId (用于追踪)
+   */
+  public getCurrentAttemptId(): number {
+    return this.currentAttemptId;
+  }
+
+  /**
    * 运行时注入真实密钥（用于本地调试，不提交到仓库）
    */
   overrideSecret(secret: string): void {
