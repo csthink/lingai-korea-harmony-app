@@ -268,10 +268,13 @@ class DatabaseService {
     }
   }
 
-  // ==================== 生词本操作 ====================
+  // ==================== 生词本操作（已废弃）====================
+  // ⚠️ 生词本业务已统一到 VocabularyService（Preferences 存储）
+  // 下列方法仅保留供未来 RDB 迁移参考，不参与当前业务链路
 
   /**
-   * 添加到生词本
+   * @deprecated 请使用 VocabularyService.addWord()
+   * 添加到生词本（RDB wordbook 表）
    */
   async addToWordbook(wordId: number, source: string = 'dictionary'): Promise<void> {
     if (!this.rdbStore) throw new Error('Database not initialized');
@@ -289,7 +292,8 @@ class DatabaseService {
   }
 
   /**
-   * 获取待复习词汇
+   * @deprecated 请使用 VocabularyService.getWordsToReview()
+   * 获取待复习词汇（RDB wordbook 表）
    */
   async getWordsToReview(limit: number = 20): Promise<WordbookEntry[]> {
     if (!this.rdbStore) throw new Error('Database not initialized');
