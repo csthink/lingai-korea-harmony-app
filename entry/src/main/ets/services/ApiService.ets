@@ -92,16 +92,13 @@ class ApiError extends Error {
 
 class ApiService {
   private static instance: ApiService;
-  private httpClient: http.HttpRequest;
 
   // 鉴权状态（内存）
   private token: string = '';
   private deviceId: string = '';
   private initialized: boolean = false;
 
-  private constructor() {
-    this.httpClient = http.createHttp();
-  }
+  private constructor() {}
 
   static getInstance(): ApiService {
     if (!ApiService.instance) {
@@ -252,9 +249,10 @@ class ApiService {
   private async get(path: string, extendedTimeout: boolean = false): Promise<string> {
     const url = this.buildUrl(path);
     const timeout = extendedTimeout ? 60000 : 15000;
+    const client = http.createHttp();
 
     try {
-      const response = await this.httpClient.request(url, {
+      const response = await client.request(url, {
         method: http.RequestMethod.GET,
         header: this.getAuthHeaders(),
         connectTimeout: 10000,
@@ -275,6 +273,8 @@ class ApiService {
       }
       console.error(`[ApiService] GET ${path} failed:`, JSON.stringify(error));
       throw new ApiError(`Request failed: ${path}`);
+    } finally {
+      client.destroy();
     }
   }
 
@@ -283,9 +283,10 @@ class ApiService {
    */
   private async post(path: string, data: string): Promise<string> {
     const url = this.buildUrl(path);
+    const client = http.createHttp();
 
     try {
-      const response = await this.httpClient.request(url, {
+      const response = await client.request(url, {
         method: http.RequestMethod.POST,
         header: this.getAuthHeaders(),
         extraData: data,
@@ -307,6 +308,8 @@ class ApiService {
       }
       console.error(`[ApiService] POST ${path} failed:`, JSON.stringify(error));
       throw new ApiError(`Request failed: ${path}`);
+    } finally {
+      client.destroy();
     }
   }
 
@@ -318,9 +321,10 @@ class ApiService {
   async sendSmsCode(phone: string): Promise<void> {
     const url = `${API_BASE_URL}${AUTH_API_PREFIX}/sms/send`;
     const body = JSON.stringify({ phone: phone });
+    const client = http.createHttp();
 
     try {
-      const response = await this.httpClient.request(url, {
+      const response = await client.request(url, {
         method: http.RequestMethod.POST,
         header: {
           'Content-Type': 'application/json',
@@ -346,6 +350,8 @@ class ApiService {
       }
       console.error('[ApiService] sendSmsCode failed:', JSON.stringify(error));
       throw new ApiError('发送验证码失败，请检查网络');
+    } finally {
+      client.destroy();
     }
   }
 
@@ -366,8 +372,9 @@ class ApiService {
       appVersion: '1.0.0',
     });
 
+    const client = http.createHttp();
     try {
-      const response = await this.httpClient.request(url, {
+      const response = await client.request(url, {
         method: http.RequestMethod.POST,
         header: {
           'Content-Type': 'application/json',
@@ -384,14 +391,12 @@ class ApiService {
         if (result.code !== 0) {
           throw new ApiError(result.message || '登录失败', result.code, result.traceId);
         }
-        // 解析 data 中的 accessToken
         const data = result.data as Record<string, Object>;
         const accessToken = data['accessToken'] as string || '';
         if (!accessToken) {
           throw new ApiError('登录成功但未获取到 token');
         }
 
-        // 持久化 token
         await this.setToken(accessToken, context);
         console.info('[ApiService] Login success, token saved');
 
@@ -405,6 +410,8 @@ class ApiService {
       }
       console.error('[ApiService] loginBySms failed:', JSON.stringify(error));
       throw new ApiError('登录失败，请检查网络');
+    } finally {
+      client.destroy();
     }
   }
 
@@ -413,8 +420,9 @@ class ApiService {
    */
   async checkPhoneAuthStatus(): Promise<PhoneAuthStatus> {
     const url = `${API_BASE_URL}${AUTH_API_PREFIX}/phone-auth/status`;
+    const client = http.createHttp();
     try {
-      const response = await this.httpClient.request(url, {
+      const response = await client.request(url, {
         method: http.RequestMethod.GET,
         header: {
           'X-App-Id': AUTH_APP_ID,
@@ -428,7 +436,6 @@ class ApiService {
         const result = JSON.parse(response.result as string) as UnifiedResult;
         if (result.code !== 0) return new PhoneAuthStatus();
         
-        // 解析 data
         const data = result.data as Record<string, boolean>;
         const status = new PhoneAuthStatus();
 
@@ -443,6 +450,8 @@ class ApiService {
     } catch (error) {
       console.warn('[ApiService] Check phone auth status failed, default to SMS');
       return new PhoneAuthStatus();
+    } finally {
+      client.destroy();
     }
   }
 
@@ -461,6 +470,7 @@ class ApiService {
       appVersion: '1.0.0'
     });
 
+    const client = http.createHttp();
     try {
       const finalHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -471,7 +481,7 @@ class ApiService {
         finalHeaders['X-Client-Attempt-Id'] = attemptId.toString();
       }
 
-      const response = await this.httpClient.request(url, {
+      const response = await client.request(url, {
         method: http.RequestMethod.POST,
         header: finalHeaders,
         extraData: body,
@@ -498,6 +508,8 @@ class ApiService {
       if (error instanceof ApiError) throw error;
       console.error('[ApiService] loginByOneClick failed:', JSON.stringify(error));
       throw new ApiError('登录失败，请检查网络');
+    } finally {
+      client.destroy();
     }
   }
 
@@ -507,11 +519,11 @@ class ApiService {
    * 获取当前用户信息
    */
   async getCurrentUserInfo(): Promise<UserInfo> {
-    // 直连 Unified 用户接口 (该接口不走 /biz 前缀)
     const url = `${API_BASE_URL}/api/app/user/info`;
+    const client = http.createHttp();
 
     try {
-      const response = await this.httpClient.request(url, {
+      const response = await client.request(url, {
         method: http.RequestMethod.GET,
         header: this.getAuthHeaders(),
         connectTimeout: 5000,
@@ -519,7 +531,6 @@ class ApiService {
       });
 
       if (response.responseCode === 200) {
-        // 解包 UnifiedResult
         const result = JSON.parse(response.result as string) as UnifiedResult;
         if (result.code !== 0) {
            throw new ApiError(result.message || 'Get user info failed', result.code, result.traceId);
@@ -541,6 +552,8 @@ class ApiService {
       if (error instanceof ApiError) throw error;
       console.error('[ApiService] Get user info failed:', JSON.stringify(error));
       throw error as Error;
+    } finally {
+      client.destroy();
     }
   }
 
@@ -550,9 +563,10 @@ class ApiService {
    */
   async logout(context: Context): Promise<void> {
     const url = `${API_BASE_URL}${AUTH_API_PREFIX}/logout`;
+    const client = http.createHttp();
     try {
       if (this.token) {
-        await this.httpClient.request(url, {
+        await client.request(url, {
           method: http.RequestMethod.POST,
           header: {
             'Content-Type': 'application/json',
@@ -569,6 +583,7 @@ class ApiService {
     } catch (error) {
       console.warn('[ApiService] Logout request failed (ignored):', JSON.stringify(error));
     } finally {
+      client.destroy();
       await this.clearToken(context);
     }
   }
@@ -906,10 +921,10 @@ class ApiService {
   }
 
   /**
-   * 销毁 HTTP 客户端
+   * 销毁（无需清理，每次请求独立创建 httpClient）
    */
   destroy() {
-    this.httpClient.destroy();
+    // no-op: per-request httpClient 已在 finally 中销毁
   }
 }
 

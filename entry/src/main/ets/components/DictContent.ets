@@ -863,10 +863,21 @@ export struct DictContent {
     this.showAddDialog = true;
   }
 
-  confirmAddToWordbook() {
+  async confirmAddToWordbook() {
     if (this.selectedWord !== null) {
-      // TODO: Call DatabaseService.addToWordbook()
-      console.info(`Added word to wordbook: ${this.selectedWord.hangul}`);
+      const hangul = this.selectedWord.hangul;
+      const meaning = this.selectedWord.primaryMeaning;
+      const success = await this.vocabularyService.addWord(hangul, meaning, 'dictionary');
+      if (success) {
+        console.info(`[DictContent] Added word to wordbook: ${hangul}`);
+        // 刷新收藏数据和生词本状态
+        this.loadFavoriteData();
+        if (this.searchText.trim() === hangul) {
+          this.isInVocabulary = true;
+        }
+      } else {
+        console.warn(`[DictContent] Failed to add word: ${hangul}`);
+      }
     }
     this.showAddDialog = false;
     this.selectedWord = null;

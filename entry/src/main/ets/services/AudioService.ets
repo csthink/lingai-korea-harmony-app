@@ -15,6 +15,9 @@ class AudioService {
   private isPlaying: boolean = false;
   private currentText: string = '';
   private cacheDir: string = '';
+  // 临时文件追踪
+  private currentTempFilePath: string = '';
+  private currentTempFd: number = -1;
 
   private constructor() {}
 
@@ -137,6 +140,9 @@ class AudioService {
    */
   private async playAudioData(audioData: ArrayBuffer): Promise<void> {
     try {
+      // 清理上一次的临时文件（防止重复播放遗留）
+      this.cleanupTempFile();
+
       // 创建AVPlayer
       this.avPlayer = await media.createAVPlayer();
       console.info('AudioService: AVPlayer created');
@@ -146,13 +152,12 @@ class AudioService {
         console.info(`AudioService: State changed to ${state}`);
         if (state === 'completed' || state === 'error' || state === 'stopped') {
           this.isPlaying = false;
+          this.cleanupTempFile();
         }
         if (state === 'initialized') {
-          // 准备播放
           this.avPlayer?.prepare();
         }
         if (state === 'prepared') {
-          // 开始播放
           this.avPlayer?.play();
         }
       });
@@ -160,22 +165,26 @@ class AudioService {
       this.avPlayer.on('error', (err: Error) => {
         console.error('AudioService: Player error', err.message);
         this.isPlaying = false;
+        this.cleanupTempFile();
       });
 
       // 使用fdSrc方式播放（内存数据）
-      // 需要先写入临时文件
       if (this.cacheDir) {
         const tempFile = `${this.cacheDir}/temp_audio_${Date.now()}.mp3`;
         const file = fs.openSync(tempFile, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
         fs.writeSync(file.fd, audioData);
-        
+
+        // 记录临时文件信息
+        this.currentTempFilePath = tempFile;
+        this.currentTempFd = file.fd;
+
         // 使用fdSrc播放
         this.avPlayer.fdSrc = {
           fd: file.fd,
           offset: 0,
           length: audioData.byteLength
         };
-        
+
         console.info('AudioService: Set fdSrc, waiting for state change');
       } else {
         console.error('AudioService: Cache dir not set, cannot play');
@@ -185,6 +194,7 @@ class AudioService {
     } catch (error) {
       console.error('AudioService: PlayAudioData failed', JSON.stringify(error));
       this.isPlaying = false;
+      this.cleanupTempFile();
     }
   }
 
@@ -201,8 +211,35 @@ class AudioService {
       }
       this.avPlayer = null;
     }
+    this.cleanupTempFile();
     this.isPlaying = false;
     this.currentText = '';
+  }
+
+  /**
+   * 清理临时音频文件和文件描述符
+   */
+  private cleanupTempFile(): void {
+    // 关闭 fd
+    if (this.currentTempFd >= 0) {
+      try {
+        fs.closeSync(this.currentTempFd);
+        console.info('AudioService: Closed temp fd');
+      } catch (e) {
+        // fd 可能已经关闭
+      }
+      this.currentTempFd = -1;
+    }
+    // 删除临时文件
+    if (this.currentTempFilePath.length > 0) {
+      try {
+        fs.unlinkSync(this.currentTempFilePath);
+        console.info(`AudioService: Deleted temp file ${this.currentTempFilePath}`);
+      } catch (e) {
+        // 文件可能已被删除
+      }
+      this.currentTempFilePath = '';
+    }
   }
 
   /**
