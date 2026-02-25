@@ -180,46 +180,16 @@ struct LessonPage {
         this.phase = LearningPhase.PREVIEW;
         console.info(`Loaded ${this.words.length} words from API`);
       } else {
-        this.loadingError = '无数据';
-        this.loadMockData();
+        this.loadingError = '当前关卡暂无词表数据';
+        // 保持 LOADING 状态，不进入学习流程
       }
     } catch (error) {
       console.error('Failed to load lesson data');
-      this.loadingError = '加载失败，使用离线数据';
-      // 使用备用的模拟数据
-      this.loadMockData();
+      this.loadingError = '加载失败，请检查网络后重试';
+      // 保持 LOADING 状态，用户可通过重试按钮重新加载
     }
   }
 
-  loadMockData() {
-    const word1 = new WordEntry();
-    word1.id = 1;
-    word1.hangul = '안녕';
-    word1.romanization = 'annyeong';
-    word1.pos = '감탄사';
-    word1.primaryMeaning = '你好/再见';
-    word1.collocations = ['안녕하세요', '안녕히 가세요'];
-    word1.examples = [new ExampleSentence('안녕, 오늘 기분 어때?', '你好，今天心情怎么样？')];
-    word1.topikLevel = 1;
-    word1.freqRank = 1;
-    word1.lessonId = 1;
-
-    const word2 = new WordEntry();
-    word2.id = 2;
-    word2.hangul = '감사';
-    word2.romanization = 'gamsa';
-    word2.pos = '명사';
-    word2.primaryMeaning = '感谢';
-    word2.collocations = ['감사하다', '감사합니다'];
-    word2.examples = [new ExampleSentence('도움에 감사합니다.', '感谢您的帮助。')];
-    word2.topikLevel = 1;
-    word2.freqRank = 2;
-    word2.lessonId = 1;
-
-    this.words = [word1, word2];
-    this.generateQuizzes();
-    this.phase = LearningPhase.PREVIEW;
-  }
 
   generateQuizzes() {
     const quizList: Quiz[] = [];
@@ -361,26 +331,46 @@ struct LessonPage {
   @Builder
   LoadingContent() {
     Column() {
-      LoadingProgress()
-        .width(48)
-        .height(48)
-        .color(COLORS.PRIMARY)
+      if (this.loadingError === '') {
+        LoadingProgress()
+          .width(48)
+          .height(48)
+          .color(COLORS.PRIMARY)
 
-      Text('正在加载词表...')
-        .fontSize(16)
-        .fontColor(COLORS.TEXT_SECONDARY)
-        .margin({ top: 16 })
+        Text('正在加载词表...')
+          .fontSize(16)
+          .fontColor(COLORS.TEXT_SECONDARY)
+          .margin({ top: 16 })
+      } else {
+        Image($r('app.media.ic_retry'))
+          .width(64)
+          .height(64)
+          .fillColor(COLORS.TEXT_SECONDARY)
+          .opacity(0.5)
 
-      if (this.loadingError !== '') {
         Text(this.loadingError)
-          .fontSize(14)
+          .fontSize(16)
           .fontColor(COLORS.WARNING)
-          .margin({ top: 8 })
+          .margin({ top: 16 })
+          .textAlign(TextAlign.Center)
+
+        Button('重试')
+          .type(ButtonType.Capsule)
+          .backgroundColor(COLORS.PRIMARY)
+          .fontColor('#ffffff')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .height(40)
+          .padding({ left: 32, right: 32 })
+          .margin({ top: 24 })
+          .onClick(() => {
+            this.loadLessonData();
+          })
       }
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
+    .justifyContent(FlexAlign.Center)  
   }
 
   @Builder

@@ -4,20 +4,26 @@
  * 适配 ArkTS 严格模式
  */
 import router from '@ohos.router';
-import { COLORS } from '../utils/Constants';
+import { COLORS, WORDS_PER_LESSON } from '../utils/Constants';
 import { DailyTask } from '../models/DataModels';
 import TaskTrackingService from '../services/TaskTrackingService';
+import ApiService from '../services/ApiService';
+import PreferencesService from '../services/PreferencesService';
 import { themeManager } from '../utils/ThemeManager';
+import preferences from '@ohos.data.preferences';
 
 @Component
 export struct HomeContent {
-  @State userName: string = '小明';
-  @State streakDays: number = 12;
-  @State todayProgress: number = 75;
+  @State userName: string = '';
+  @State streakDays: number = 0;
+  @State todayProgress: number = 0;
   @State dailyTask: DailyTask = new DailyTask();
   @State taskVersionKey: number = 0;
-  @State newWordsCount: number = 15;
-  @State reviewWordsCount: number = 28;
+  @State newWordsCount: number = 0;
+  @State reviewWordsCount: number = 0;
+  @State currentLevel: number = 1;
+  @State currentLessonId: number = 1;
+  @State lessonTitle: string = '关卡 1';
   @State themeVersion: number = 0;
 
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
@@ -33,13 +39,99 @@ export struct HomeContent {
     const context = getContext(this);
     await this.taskService.init(context);
     this.dailyTask = this.taskService.getCurrentTask();
-    this.reviewWordsCount = this.dailyTask.reviewCount > 0 ? this.dailyTask.reviewCount : 28;
+    this.refreshHomeStats();
 
     this.taskService.setOnUpdateCallback((task: DailyTask) => {
       this.dailyTask = task;
-      this.reviewWordsCount = task.reviewCount > 0 ? task.reviewCount : 28;
+      this.refreshHomeStats();
       this.taskVersionKey++;
     });
+
+    // 异步加载连续学习天数
+    this.taskService.getStreakDays().then((days: number) => {
+      this.streakDays = days;
+    });
+
+    // 加载真实用户信息
+    await this.loadUserInfo(context);
+    // 加载学习进度（确定当前关卡）
+    await this.loadLearningProgress(context);
+  }
+
+  /**
+   * 刷新首页统计数据（streakDays 由异步方法单独加载）
+   */
+  private refreshHomeStats() {
+    // 今日进度
+    this.todayProgress = this.taskService.calculateTodayProgress();
+    // 复习词数 — 直接取任务中真实值
+    this.reviewWordsCount = this.dailyTask.reviewCount;
+  }
+
+  /**
+   * 从后端获取用户信息，失败时使用默认值
+   */
+  private async loadUserInfo(context: Context) {
+    try {
+      const api = ApiService.getInstance();
+      await api.init(context);
+      if (!api.getToken()) {
+        this.userName = '同学';
+        return;
+      }
+      const userInfo = await api.getCurrentUserInfo();
+      if (userInfo.nickname) {
+        this.userName = userInfo.nickname;
+      } else if (userInfo.phone) {
+        this.userName = userInfo.phone;
+      } else {
+        this.userName = '同学';
+      }
+    } catch (e) {
+      console.warn('[HomeContent] loadUserInfo failed, using default');
+      if (!this.userName) {
+        this.userName = '同学';
+      }
+    }
+  }
+
+  /**
+   * 从本地偏好读取学习进度，然后从 API 获取该关卡的词数
+   */
+  private async loadLearningProgress(context: Context) {
+    try {
+      const prefService = PreferencesService.getInstance();
+      await prefService.init(context);
+      const state = await prefService.getLearningState();
+      this.currentLevel = state.currentLevel;
+      this.currentLessonId = state.currentLesson;
+      this.lessonTitle = `关卡 ${this.currentLessonId}`;
+    } catch (e) {
+      console.warn('[HomeContent] loadLearningProgress pref failed, using defaults');
+    }
+
+    // 读取用户设置的每关单词数
+    let wordsPerLesson = WORDS_PER_LESSON;
+    try {
+      const context2 = getContext(this);
+      const pref = await preferences.getPreferences(context2, 'user_settings');
+      wordsPerLesson = await pref.get('wordsPerLesson', WORDS_PER_LESSON) as number;
+    } catch (_e) {
+      // 使用默认值
+    }
+
+    // 从 API 获取当前关卡词数
+    try {
+      const api = ApiService.getInstance();
+      const response = await api.getLessonWords(this.currentLevel, this.currentLessonId, wordsPerLesson);
+      if (response && response.wordCount > 0) {
+        this.newWordsCount = response.wordCount;
+      } else if (response && response.words && response.words.length > 0) {
+        this.newWordsCount = response.words.length;
+      }
+    } catch (e) {
+      console.warn('[HomeContent] getLessonWords failed, newWordsCount stays default');
+    }
   }
 
   aboutToDisappear() {
@@ -165,12 +257,12 @@ export struct HomeContent {
 
         // 中间文字
         Column() {
-          Text('TOPIK I • 关卡 4')
+          Text(`TOPIK ${this.currentLevel <= 2 ? 'I' : 'II'} • ${this.lessonTitle}`)
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_PRIMARY)
 
-          Text(this.newWordsCount.toString() + ' 个新词 • 预计 8 分钟')
+          Text(this.newWordsCount.toString() + ' 个新词 • 预计 ' + this.estimateMinutes().toString() + ' 分钟')
             .fontSize(12)
             .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 2 })
@@ -258,23 +350,31 @@ export struct HomeContent {
     router.pushUrl({
       url: 'pages/LessonPage',
       params: {
-        lessonId: 4,
-        level: 1,
-        title: '关卡 4'
+        lessonId: this.currentLessonId,
+        level: this.currentLevel,
+        title: this.lessonTitle
       }
     });
   }
 
   startReview() {
-    // TODO: 实现复习页面跳转
     router.pushUrl({
       url: 'pages/LessonPage',
       params: {
-        lessonId: 1,
-        level: 1,
+        lessonId: this.currentLessonId,
+        level: this.currentLevel,
         title: '智能复习',
         isReview: true
       }
     });
+  }
+
+  /**
+   * 根据新词数量估算学习时长（分钟）
+   * 按每词约 30 秒估算，最少 1 分钟
+   */
+  private estimateMinutes(): number {
+    if (this.newWordsCount <= 0) return 1;
+    return Math.max(1, Math.round(this.newWordsCount * 0.5));
   }
 }

@@ -164,6 +164,59 @@ class TaskTrackingService {
   }
 
   /**
+   * 计算连续学习天数（从今天往前数，有任意学习活动的连续天数）
+   * 活动定义：lessonStepDone > 0 或 reviewCount > 0 或 studyMinutes > 0
+   */
+  async getStreakDays(): Promise<number> {
+    try {
+      const recentTasks = await this.dbService.getRecentDailyTasks(30);
+      if (recentTasks.length === 0) return 0;
+
+      // 按日期降序排列（getRecentDailyTasks 已 orderByDesc）
+      let streak = 0;
+      const today = new Date();
+
+      for (let i = 0; i < recentTasks.length; i++) {
+        const task = recentTasks[i];
+        const hasActivity = task.lessonStepDone > 0 || task.reviewCount > 0 || task.studyMinutes > 0;
+
+        // 计算期望日期（今天 - i 天）
+        const expectedDate = new Date(today);
+        expectedDate.setDate(today.getDate() - i);
+        const expectedDateStr = expectedDate.toISOString().split('T')[0];
+
+        if (task.date === expectedDateStr && hasActivity) {
+          streak++;
+        } else {
+          break;
+        }
+      }
+      return streak;
+    } catch (error) {
+      console.error('getStreakDays failed:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * 计算今日学习进度（0-100）
+   * 三个子目标各占 1/3 权重：
+   *   - 关卡学习 (lessonStepDone >= 1)
+   *   - 复习 (reviewCount >= 20)
+   *   - 学习时长 (studyMinutes >= 10)
+   */
+  calculateTodayProgress(): number {
+    let progress = 0;
+    // 关卡进度（完成 1 步即满分）
+    progress += Math.min(this.currentTask.lessonStepDone, 1) * 33;
+    // 复习进度
+    progress += Math.min(this.currentTask.reviewCount / 20, 1) * 33;
+    // 学习时长进度
+    progress += Math.min(this.currentTask.studyMinutes / 10, 1) * 34;
+    return Math.round(progress);
+  }
+
+  /**
    * 保存任务到数据库
    */
   private async saveTask(): Promise<void> {

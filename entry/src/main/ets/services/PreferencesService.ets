@@ -6,19 +6,31 @@ import preferences from '@ohos.data.preferences';
 import { STORAGE_KEYS } from '../utils/Constants';
 import { UserSettings, LearningState } from '../models/DataModels';
 
-// 默认用户设置
-const DEFAULT_USER_SETTINGS: UserSettings = {
-  notificationEnabled: false,  // POC: 默认关闭
-  notificationTime: '09:00',
-  autoDownloadCount: 3,
-};
+// 导出数据结构
+class ExportData {
+  version: number = 0;
+  exportTime: number = 0;
+  settings: UserSettings = new UserSettings();
+  state: LearningState = new LearningState();
+}
 
-// 默认学习状态
-const DEFAULT_LEARNING_STATE: LearningState = {
-  currentLevel: 1,
-  currentLesson: 1,
-  lastOpenTime: 0,
-};
+/** 创建默认用户设置（每次返回新实例） */
+function defaultUserSettings(): UserSettings {
+  const s = new UserSettings();
+  s.notificationEnabled = false;
+  s.notificationTime = '09:00';
+  s.autoDownloadCount = 3;
+  return s;
+}
+
+/** 创建默认学习状态（每次返回新实例） */
+function defaultLearningState(): LearningState {
+  const s = new LearningState();
+  s.currentLevel = 1;
+  s.currentLesson = 1;
+  s.lastOpenTime = 0;
+  return s;
+}
 
 class PreferencesService {
   private static instance: PreferencesService;
@@ -44,8 +56,9 @@ class PreferencesService {
       this.preferencesStore = await preferences.getPreferences(context, 'lingai_prefs');
       console.info('Preferences initialized successfully');
     } catch (error) {
-      console.error('Preferences init failed:', error);
-      throw error;
+      const msg = (error instanceof Error) ? error.message : String(error);
+      console.error('Preferences init failed:', msg);
+      throw new Error('Preferences init failed: ' + msg);
     }
   }
 
@@ -64,10 +77,10 @@ class PreferencesService {
         return JSON.parse(settingsStr as string) as UserSettings;
       }
       
-      return { ...DEFAULT_USER_SETTINGS };
+      return defaultUserSettings();
     } catch (error) {
       console.error('Get user settings failed:', error);
-      return { ...DEFAULT_USER_SETTINGS };
+      return defaultUserSettings();
     }
   }
 
@@ -81,8 +94,9 @@ class PreferencesService {
       await this.preferencesStore.put(STORAGE_KEYS.USER_SETTINGS, JSON.stringify(settings));
       await this.preferencesStore.flush();
     } catch (error) {
-      console.error('Save user settings failed:', error);
-      throw error;
+      const msg = (error instanceof Error) ? error.message : String(error);
+      console.error('Save user settings failed:', msg);
+      throw new Error('Save user settings failed: ' + msg);
     }
   }
 
@@ -101,10 +115,10 @@ class PreferencesService {
         return JSON.parse(stateStr as string) as LearningState;
       }
       
-      return { ...DEFAULT_LEARNING_STATE };
+      return defaultLearningState();
     } catch (error) {
       console.error('Get learning state failed:', error);
-      return { ...DEFAULT_LEARNING_STATE };
+      return defaultLearningState();
     }
   }
 
@@ -118,8 +132,9 @@ class PreferencesService {
       await this.preferencesStore.put(STORAGE_KEYS.LEARNING_STATE, JSON.stringify(state));
       await this.preferencesStore.flush();
     } catch (error) {
-      console.error('Save learning state failed:', error);
-      throw error;
+      const msg = (error instanceof Error) ? error.message : String(error);
+      console.error('Save learning state failed:', msg);
+      throw new Error('Save learning state failed: ' + msg);
     }
   }
 
@@ -183,14 +198,13 @@ class PreferencesService {
     const settings = await this.getUserSettings();
     const state = await this.getLearningState();
     
-    const exportData = {
-      version: 1,
-      exportTime: Date.now(),
-      settings,
-      state,
-    };
+    const exp = new ExportData();
+    exp.version = 1;
+    exp.exportTime = Date.now();
+    exp.settings = settings;
+    exp.state = state;
     
-    return JSON.stringify(exportData);
+    return JSON.stringify(exp);
   }
 
   /**
@@ -198,7 +212,7 @@ class PreferencesService {
    */
   async importData(dataStr: string): Promise<boolean> {
     try {
-      const data = JSON.parse(dataStr);
+      const data = JSON.parse(dataStr) as ExportData;
       
       if (data.version !== 1) {
         console.error('Unsupported backup version');
