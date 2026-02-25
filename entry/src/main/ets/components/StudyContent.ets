@@ -7,6 +7,8 @@ import router from '@ohos.router';
 import { COLORS, TOPIK_LEVELS, WORDS_PER_LESSON } from '../utils/Constants';
 import preferences from '@ohos.data.preferences';
 import { themeManager } from '../utils/ThemeManager';
+import ApiService from '../services/ApiService';
+import PreferencesService from '../services/PreferencesService';
 
 // 关卡状态枚举
 export enum LevelStatus {
@@ -44,11 +46,12 @@ export struct StudyContent {
   @State ripple3Opacity: number = 0.2;  // 第3层波纹透明度
   @State themeVersion: number = 0;
 
-  private readonly WORD_COUNTS: Map<number, number> = new Map([
-    [1, 1559],  // TOPIK I
-    [2, 3764],  // TOPIK II
-    [0, 1203],  // 常考单词
-  ]);
+  // 从 API 加载的每个 level 的数据（key: level值）
+  private levelLessonCounts: Map<number, number> = new Map();  // 接口 lesson_count
+  private levelWordCounts: Map<number, number> = new Map();    // 接口 word_count（兆底）
+  // 当前学习进度（本地 LearningState）
+  @State currentLessonId: number = 1;
+  @State currentProgressLevel: number = 1;
   private breathTimer: number = -1;
   private ripplePhase: number = 0;  // 波纹相位
   private unsubscribeTheme: (() => void) | null = null;
@@ -60,15 +63,66 @@ export struct StudyContent {
       });
     }
 
+    const context = getContext(this);
+
+    // 读取每关单词数设置
     try {
-      const context = getContext(this);
       const pref = await preferences.getPreferences(context, 'user_settings');
       this.wordsPerLesson = await pref.get('wordsPerLesson', WORDS_PER_LESSON) as number;
     } catch (e) {
       this.wordsPerLesson = WORDS_PER_LESSON;
     }
+
+    // 读取本地学习进度
+    try {
+      const prefService = PreferencesService.getInstance();
+      await prefService.init(context);
+      const state = await prefService.getLearningState();
+      this.currentLessonId = state.currentLesson;
+      this.currentProgressLevel = state.currentLevel;
+    } catch (e) {
+      console.warn('[StudyContent] getLearningState failed, using defaults');
+    }
+
+    // 从后端加载关卡配置
+    await this.loadLevelInfoFromApi(context);
+
     this.loadLevels();
     this.startRippleAnimation();
+  }
+
+  /**
+   * 从后端加载关卡总配置，填充 levelWordCounts
+   */
+  private async loadLevelInfoFromApi(context: Context) {
+    try {
+      const api = ApiService.getInstance();
+      await api.init(context);
+      const levelInfo = await api.getLevelInfo();
+      if (levelInfo && levelInfo.levels && levelInfo.levels.length > 0) {
+        for (let i = 0; i < levelInfo.levels.length; i++) {
+          const lv = levelInfo.levels[i] as Record<string, Object>;
+          const lvValue = (lv['level'] as number) || 0;
+          const wordCount = (lv['word_count'] as number) || 0;
+          const lessonCount = (lv['lesson_count'] as number) || 0;
+          if (lvValue >= 0) {
+            if (lessonCount > 0) {
+              this.levelLessonCounts.set(lvValue, lessonCount);
+            }
+            if (wordCount > 0) {
+              this.levelWordCounts.set(lvValue, wordCount);
+            }
+          }
+        }
+        // 如果 API 返回了 words_per_lesson，作为回退值
+        if (levelInfo.words_per_lesson > 0 && this.wordsPerLesson === WORDS_PER_LESSON) {
+          this.wordsPerLesson = levelInfo.words_per_lesson;
+        }
+        console.info('[StudyContent] Loaded level info from API, levels:', levelInfo.levels.length);
+      }
+    } catch (e) {
+      console.warn('[StudyContent] loadLevelInfoFromApi failed, using fallback');
+    }
   }
 
   aboutToDisappear() {
@@ -104,26 +158,45 @@ export struct StudyContent {
   }
 
   loadLevels() {
-    // 根据当前选择的Tab获取level值
-    const levelValues = [1, 2, 0];  // TOPIK I, TOPIK II, 常考单词
+    // 根据当前选择的 Tab 获取 level 值
+    const levelValues: number[] = [1, 2, 0];  // TOPIK I, TOPIK II, 常考单词
     this.currentLevel = levelValues[this.selectedTabIndex];
 
-    const wordCount = this.WORD_COUNTS.get(this.currentLevel) || 1559;
-    const lessonCount = Math.ceil(wordCount / this.wordsPerLesson);
+    // 优先使用 API lesson_count，其次用 word_count 计算，最后回退到默认 10
+    let lessonCount: number;
+    const apiLessonCount = this.levelLessonCounts.get(this.currentLevel) || 0;
+    if (apiLessonCount > 0) {
+      lessonCount = apiLessonCount;
+    } else {
+      const wordCount = this.levelWordCounts.get(this.currentLevel) || 0;
+      if (wordCount > 0) {
+        lessonCount = Math.ceil(wordCount / this.wordsPerLesson);
+      } else {
+        lessonCount = 10;  // API 未加载时的最小回退
+      }
+    }
 
-    // 生成关卡节点，模拟蛇形路径
+    // 确定当前 Tab 下的学习进度（只有当前选中的 level 与学习进度的 level 匹配时才显示进度）
+    const isCurrentProgressTab = (this.currentLevel === this.currentProgressLevel);
+    const progressLesson = isCurrentProgressTab ? this.currentLessonId : 0;
+
+    // 生成关卡节点
     const newLevels: LevelNodeData[] = [];
-    for (let i = 1; i <= Math.min(lessonCount, 10); i++) {  // 显示前10关
+    const displayCount = Math.min(lessonCount, 10);  // 显示前 10 关
+    for (let i = 1; i <= displayCount; i++) {
       const node = new LevelNodeData(i, LevelStatus.LOCKED, 0);
 
-      // 模拟进度：前3关已完成，第4关当前，其他锁定
-      if (i < 4) {
-        node.status = LevelStatus.COMPLETED;
-        node.stars = 3;
-      } else if (i === 4) {
-        node.status = LevelStatus.CURRENT;
-        node.stars = 2;
+      if (isCurrentProgressTab) {
+        if (i < progressLesson) {
+          node.status = LevelStatus.COMPLETED;
+          node.stars = 3;
+        } else if (i === progressLesson) {
+          node.status = LevelStatus.CURRENT;
+          node.stars = 2;
+        }
+        // i > progressLesson 保持 LOCKED
       }
+      // 非当前进度的 Tab，全部保持 LOCKED
 
       newLevels.push(node);
     }
