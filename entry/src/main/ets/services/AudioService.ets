@@ -6,7 +6,7 @@
 import media from '@ohos.multimedia.media';
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
-import { API_BASE_URL, BIZ_API_PREFIX, APP_ID } from '../utils/Constants';
+import { API_BASE_URL, BIZ_API_PREFIX } from '../utils/Constants';
 import ApiService from './ApiService';
 
 class AudioService {
@@ -99,17 +99,9 @@ class AudioService {
     const apiService = ApiService.getInstance();
     const httpClient = http.createHttp();
     try {
-      const authHeaders: Record<string, string> = {
-        'X-App-Id': APP_ID,
-      };
-      const token = apiService.getToken();
-      if (token) {
-        authHeaders['Authorization'] = `Bearer ${token}`;
-      }
-      const deviceId = apiService.getDeviceId();
-      if (deviceId) {
-        authHeaders['X-Device-Id'] = deviceId;
-      }
+      const authHeaders = await apiService.buildSignedHeaders('', true);
+      // TTS 返回二进制音频，覆盖掉 JSON Content-Type
+      authHeaders['Content-Type'] = '';
 
       const response = await httpClient.request(url, {
         method: http.RequestMethod.GET,

@@ -3,7 +3,7 @@
  * 内嵌于Tab中展示词典搜索功能
  * 适配 ArkTS 严格模式
  */
-import { COLORS, API_BASE_URL, BIZ_API_PREFIX, APP_ID } from '../utils/Constants';
+import { COLORS, API_BASE_URL, BIZ_API_PREFIX } from '../utils/Constants';
 import { WordEntry, DictAIResponse, DictSearchResponse, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample } from '../models/DataModels';
 import { WordCard } from './WordCard';
 import { PlayButton, PlayIcon } from './PlayButton';
@@ -474,7 +474,7 @@ export struct DictContent {
    * 缓存命中时直接显示完整结果
    * 缓存未命中时流式显示LLM生成过程
    */
-  performStreamingSearch(): void {
+  async performStreamingSearch(): Promise<void> {
     const query = this.searchText.trim();
     if (query.length === 0) {
       this.searchResults = [];
@@ -626,21 +626,12 @@ export struct DictContent {
       }
     });
 
-    // 构建鉴权请求头
+    // 构建签名鉴权请求头
     const apiService = ApiService.getInstance();
-    const sseHeaders: Record<string, string> = {
-      'Accept': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'X-App-Id': APP_ID,
-    };
-    const sseToken = apiService.getToken();
-    if (sseToken) {
-      sseHeaders['Authorization'] = `Bearer ${sseToken}`;
-    }
-    const sseDeviceId = apiService.getDeviceId();
-    if (sseDeviceId) {
-      sseHeaders['X-Device-Id'] = sseDeviceId;
-    }
+    const sseHeaders = await apiService.buildSignedHeaders('', true);
+    sseHeaders['Accept'] = 'text/event-stream';
+    sseHeaders['Cache-Control'] = 'no-cache';
+    sseHeaders['Content-Type'] = '';
 
     const options: http.HttpRequestOptions = {
       method: http.RequestMethod.GET,

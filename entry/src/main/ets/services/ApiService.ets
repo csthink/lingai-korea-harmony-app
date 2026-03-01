@@ -6,7 +6,8 @@
 import http from '@ohos.net.http';
 import preferences from '@ohos.data.preferences';
 import deviceInfo from '@ohos.deviceInfo';
-import { API_BASE_URL, BIZ_API_PREFIX, AUTH_API_PREFIX, APP_ID, AUTH_APP_ID, STORAGE_KEYS } from '../utils/Constants';
+import { API_BASE_URL, BIZ_API_PREFIX, AUTH_API_PREFIX, AUTH_APP_ID, APP_KEY, APP_PRIVATE_KEY, STORAGE_KEYS } from '../utils/Constants';
+import { RequestSigner } from './RequestSigner';
 import { DictAIResponse, DictSearchResponse, WordEntry, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample, UserInfo } from '../models/DataModels';
 
 // ==================== 响应 & 错误类型 ====================
@@ -95,8 +96,15 @@ class ApiService {
 
   // 鉴权状态（内存）
   private token: string = '';
+  private refreshToken: string = '';
   private deviceId: string = '';
   private initialized: boolean = false;
+  private appContext: Context | null = null;
+  // Token 刷新防并发
+  private refreshingPromise: Promise<void> | null = null;
+  // 签名密钥（支持运行时覆盖）
+  private signingKey: string = APP_KEY;
+  private signingPrivateKey: string = APP_PRIVATE_KEY;
 
   private constructor() {}
 
@@ -117,6 +125,7 @@ class ApiService {
     if (this.initialized) return;
 
     try {
+      this.appContext = context;
       const pref = await preferences.getPreferences(context, 'lingai_prefs');
 
       // 加载 token
@@ -124,6 +133,13 @@ class ApiService {
       if (savedToken) {
         this.token = savedToken;
         console.info('[ApiService] Token loaded from preferences');
+      }
+
+      // 加载 refreshToken
+      const savedRefreshToken = await pref.get(STORAGE_KEYS.REFRESH_TOKEN, '') as string;
+      if (savedRefreshToken) {
+        this.refreshToken = savedRefreshToken;
+        console.info('[ApiService] RefreshToken loaded from preferences');
       }
 
       // 加载或生成 deviceId
@@ -137,20 +153,40 @@ class ApiService {
       this.deviceId = savedDeviceId;
 
       this.initialized = true;
-      console.info('[ApiService] Initialized (deviceId=' + this.deviceId + ', hasToken=' + (this.token.length > 0) + ')');
+      console.info('[ApiService] Initialized (deviceId=' + this.deviceId + ', hasToken=' + (this.token.length > 0) + ', hasRefreshToken=' + (this.refreshToken.length > 0) + ')');
     } catch (error) {
       console.error('[ApiService] Init failed:', JSON.stringify(error));
     }
   }
 
   /**
-   * 设置 token（登录成功后调用）
+   * 设置 token + refreshToken（登录/刷新成功后调用）
+   */
+  async setTokens(accessToken: string, refreshToken: string, context?: Context): Promise<void> {
+    this.token = accessToken;
+    this.refreshToken = refreshToken;
+    const ctx = context || this.appContext;
+    if (ctx) {
+      try {
+        const pref = await preferences.getPreferences(ctx, 'lingai_prefs');
+        await pref.put(STORAGE_KEYS.AUTH_TOKEN, accessToken);
+        await pref.put(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
+        await pref.flush();
+      } catch (error) {
+        console.error('[ApiService] Save tokens failed:', JSON.stringify(error));
+      }
+    }
+  }
+
+  /**
+   * 兼容旧调用：仅设置 accessToken（不更新 refreshToken）
    */
   async setToken(token: string, context?: Context): Promise<void> {
     this.token = token;
-    if (context) {
+    const ctx = context || this.appContext;
+    if (ctx) {
       try {
-        const pref = await preferences.getPreferences(context, 'lingai_prefs');
+        const pref = await preferences.getPreferences(ctx, 'lingai_prefs');
         await pref.put(STORAGE_KEYS.AUTH_TOKEN, token);
         await pref.flush();
       } catch (error) {
@@ -160,17 +196,20 @@ class ApiService {
   }
 
   /**
-   * 清除 token（退出登录时调用）
+   * 清除 token + refreshToken（退出登录时调用）
    */
   async clearToken(context?: Context): Promise<void> {
     this.token = '';
-    if (context) {
+    this.refreshToken = '';
+    const ctx = context || this.appContext;
+    if (ctx) {
       try {
-        const pref = await preferences.getPreferences(context, 'lingai_prefs');
+        const pref = await preferences.getPreferences(ctx, 'lingai_prefs');
         await pref.delete(STORAGE_KEYS.AUTH_TOKEN);
+        await pref.delete(STORAGE_KEYS.REFRESH_TOKEN);
         await pref.flush();
       } catch (error) {
-        console.error('[ApiService] Clear token failed:', JSON.stringify(error));
+        console.error('[ApiService] Clear tokens failed:', JSON.stringify(error));
       }
     }
   }
@@ -188,14 +227,42 @@ class ApiService {
   // ==================== 内部工具方法 ====================
 
   /**
-   * 构建统一鉴权请求头
+   * 覆盖签名密钥（本地调试用，不提交真实密钥到仓库）
    */
-  private getAuthHeaders(): Record<string, string> {
+  overrideSignConfig(appKey: string, privateKeyPem: string): void {
+    this.signingKey = appKey;
+    this.signingPrivateKey = privateKeyPem;
+    console.info('[ApiService] Sign config overridden');
+  }
+
+  /**
+   * 构建统一签名请求头（公开方法，供 SSE/TTS 等外部调用者使用）
+   * @param body  请求体字符串，GET 请求传空串
+   * @param includeAuth  是否注入 Authorization 头
+   */
+  async buildSignedHeaders(body: string = '', includeAuth: boolean = true): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-App-Id': APP_ID,
+      'X-App-Id': AUTH_APP_ID,
     };
-    if (this.token) {
+
+    // 如果签名密钥不是占位值，执行 RSA 签名
+    if (!this.signingKey.startsWith('__') && !this.signingPrivateKey.includes('PLACEHOLDER')) {
+      const timestamp = Date.now().toString();
+      const nonce = this.generateNonce();
+      const content = `appKey=${this.signingKey}&body=${body}&nonce=${nonce}&timestamp=${timestamp}`;
+      try {
+        const signature = await RequestSigner.signRsaSha256(content, this.signingPrivateKey);
+        headers['X-App-Key'] = this.signingKey;
+        headers['X-Timestamp'] = timestamp;
+        headers['X-Nonce'] = nonce;
+        headers['X-Signature'] = signature;
+      } catch (e) {
+        console.warn('[ApiService] RSA signing failed, sending request without signature:', JSON.stringify(e));
+      }
+    }
+
+    if (includeAuth && this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
     if (this.deviceId) {
@@ -241,76 +308,164 @@ class ApiService {
     return parts.join('-');
   }
 
-  // ==================== HTTP 基础方法 ====================
+  /**
+   * 生成随机 nonce
+   */
+  private generateNonce(): string {
+    return this.generateUUID().replace(/-/g, '');
+  }
+
+  // ==================== Token 刷新 & 重试 ====================
 
   /**
-   * 发送 GET 请求（自动鉴权 + 解包）
+   * 判断是否为 Token 过期错误
    */
-  private async get(path: string, extendedTimeout: boolean = false): Promise<string> {
-    const url = this.buildUrl(path);
-    const timeout = extendedTimeout ? 60000 : 15000;
-    const client = http.createHttp();
+  private isTokenExpiredError(error: ApiError): boolean {
+    return error.code === 401 || error.code === 2001 || error.code === 2002;
+  }
 
+  /**
+   * 刷新 AccessToken（防并发：多个请求同时触发只执行一次）
+   */
+  private async refreshAccessToken(): Promise<void> {
+    if (this.refreshingPromise) return this.refreshingPromise;
+    this.refreshingPromise = (async () => {
+      console.info('[ApiService] Refreshing access token...');
+      const url = `${API_BASE_URL}${AUTH_API_PREFIX}/token/refresh`;
+      const body = JSON.stringify({ refreshToken: this.refreshToken });
+      const headers = await this.buildSignedHeaders(body, false);
+      const client = http.createHttp();
+      try {
+        const response = await client.request(url, {
+          method: http.RequestMethod.POST,
+          header: headers,
+          extraData: body,
+          connectTimeout: 10000,
+          readTimeout: 15000,
+        });
+        if (response.responseCode === 200) {
+          const result = JSON.parse(response.result as string) as UnifiedResult;
+          if (result.code !== 0) {
+            throw new ApiError(result.message || 'Token refresh failed', result.code, result.traceId);
+          }
+          const data = result.data as Record<string, Object>;
+          const newAccessToken = data['accessToken'] as string || '';
+          const newRefreshToken = data['refreshToken'] as string || this.refreshToken;
+          if (!newAccessToken) {
+            throw new ApiError('Token refresh succeeded but no accessToken returned');
+          }
+          await this.setTokens(newAccessToken, newRefreshToken);
+          console.info('[ApiService] Token refreshed successfully');
+        } else {
+          throw new ApiError(`Token refresh HTTP ${response.responseCode}`, response.responseCode);
+        }
+      } finally {
+        client.destroy();
+      }
+    })();
     try {
-      const response = await client.request(url, {
-        method: http.RequestMethod.GET,
-        header: this.getAuthHeaders(),
-        connectTimeout: 10000,
-        readTimeout: timeout,
-      });
-
-      if (response.responseCode === 200) {
-        const rawBody = response.result as string;
-        const data = this.unwrapResult(rawBody);
-        return JSON.stringify(data);
-      } else {
-        throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
-      }
-    } catch (error) {
-      if (error instanceof ApiError) {
-        console.error(`[ApiService] GET ${path} biz error: code=${error.code}, msg=${error.message}, traceId=${error.traceId}`);
-        throw error;
-      }
-      console.error(`[ApiService] GET ${path} failed:`, JSON.stringify(error));
-      throw new ApiError(`Request failed: ${path}`);
+      await this.refreshingPromise;
     } finally {
-      client.destroy();
+      this.refreshingPromise = null;
     }
   }
 
   /**
-   * 发送 POST 请求（自动鉴权 + 解包）
+   * 带自动刷新重试的请求包装器
+   * 如果原请求因 Token 过期失败，自动刷新后重试一次
+   */
+  private async withAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (this.isTokenExpiredError(e) && this.refreshToken) {
+          console.info('[ApiService] Token expired, attempting refresh and retry...');
+          await this.refreshAccessToken();
+          return await fn();
+        }
+        throw e;
+      }
+      throw new ApiError(`Unexpected error: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // ==================== HTTP 基础方法 ====================
+
+  /**
+   * 发送 GET 请求（自动签名 + 鉴权 + 解包 + Token 过期自动刷新重试）
+   */
+  private async get(path: string, extendedTimeout: boolean = false): Promise<string> {
+    return this.withAuthRetry(async () => {
+      const url = this.buildUrl(path);
+      const timeout = extendedTimeout ? 60000 : 15000;
+      const headers = await this.buildSignedHeaders('', true);
+      const client = http.createHttp();
+
+      try {
+        const response = await client.request(url, {
+          method: http.RequestMethod.GET,
+          header: headers,
+          connectTimeout: 10000,
+          readTimeout: timeout,
+        });
+
+        if (response.responseCode === 200) {
+          const rawBody = response.result as string;
+          const data = this.unwrapResult(rawBody);
+          return JSON.stringify(data);
+        } else {
+          throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+        }
+      } catch (error) {
+        if (error instanceof ApiError) {
+          console.error(`[ApiService] GET ${path} biz error: code=${error.code}, msg=${error.message}, traceId=${error.traceId}`);
+          throw error;
+        }
+        console.error(`[ApiService] GET ${path} failed:`, JSON.stringify(error));
+        throw new ApiError(`Request failed: ${path}`);
+      } finally {
+        client.destroy();
+      }
+    });
+  }
+
+  /**
+   * 发送 POST 请求（自动签名 + 鉴权 + 解包 + Token 过期自动刷新重试）
    */
   private async post(path: string, data: string): Promise<string> {
-    const url = this.buildUrl(path);
-    const client = http.createHttp();
+    return this.withAuthRetry(async () => {
+      const url = this.buildUrl(path);
+      const headers = await this.buildSignedHeaders(data, true);
+      const client = http.createHttp();
 
-    try {
-      const response = await client.request(url, {
-        method: http.RequestMethod.POST,
-        header: this.getAuthHeaders(),
-        extraData: data,
-        connectTimeout: 10000,
-        readTimeout: 30000,
-      });
+      try {
+        const response = await client.request(url, {
+          method: http.RequestMethod.POST,
+          header: headers,
+          extraData: data,
+          connectTimeout: 10000,
+          readTimeout: 30000,
+        });
 
-      if (response.responseCode === 200) {
-        const rawBody = response.result as string;
-        const unwrapped = this.unwrapResult(rawBody);
-        return JSON.stringify(unwrapped);
-      } else {
-        throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+        if (response.responseCode === 200) {
+          const rawBody = response.result as string;
+          const unwrapped = this.unwrapResult(rawBody);
+          return JSON.stringify(unwrapped);
+        } else {
+          throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+        }
+      } catch (error) {
+        if (error instanceof ApiError) {
+          console.error(`[ApiService] POST ${path} biz error: code=${error.code}, msg=${error.message}, traceId=${error.traceId}`);
+          throw error;
+        }
+        console.error(`[ApiService] POST ${path} failed:`, JSON.stringify(error));
+        throw new ApiError(`Request failed: ${path}`);
+      } finally {
+        client.destroy();
       }
-    } catch (error) {
-      if (error instanceof ApiError) {
-        console.error(`[ApiService] POST ${path} biz error: code=${error.code}, msg=${error.message}, traceId=${error.traceId}`);
-        throw error;
-      }
-      console.error(`[ApiService] POST ${path} failed:`, JSON.stringify(error));
-      throw new ApiError(`Request failed: ${path}`);
-    } finally {
-      client.destroy();
-    }
+    });
   }
 
   // ==================== Auth API（不走 BIZ_API_PREFIX）====================
@@ -321,15 +476,13 @@ class ApiService {
   async sendSmsCode(phone: string): Promise<void> {
     const url = `${API_BASE_URL}${AUTH_API_PREFIX}/sms/send`;
     const body = JSON.stringify({ phone: phone });
+    const headers = await this.buildSignedHeaders(body, false);
     const client = http.createHttp();
 
     try {
       const response = await client.request(url, {
         method: http.RequestMethod.POST,
-        header: {
-          'Content-Type': 'application/json',
-          'X-App-Id': AUTH_APP_ID,
-        },
+        header: headers,
         extraData: body,
         connectTimeout: 10000,
         readTimeout: 15000,
@@ -372,15 +525,12 @@ class ApiService {
       appVersion: '1.0.0',
     });
 
+    const headers = await this.buildSignedHeaders(body, false);
     const client = http.createHttp();
     try {
       const response = await client.request(url, {
         method: http.RequestMethod.POST,
-        header: {
-          'Content-Type': 'application/json',
-          'X-App-Id': AUTH_APP_ID,
-          'X-Device-Id': this.deviceId,
-        },
+        header: headers,
         extraData: body,
         connectTimeout: 10000,
         readTimeout: 15000,
@@ -393,12 +543,13 @@ class ApiService {
         }
         const data = result.data as Record<string, Object>;
         const accessToken = data['accessToken'] as string || '';
+        const refreshToken = data['refreshToken'] as string || '';
         if (!accessToken) {
           throw new ApiError('登录成功但未获取到 token');
         }
 
-        await this.setToken(accessToken, context);
-        console.info('[ApiService] Login success, token saved');
+        await this.setTokens(accessToken, refreshToken, context);
+        console.info('[ApiService] Login success, tokens saved');
 
         return accessToken;
       } else {
@@ -420,14 +571,12 @@ class ApiService {
    */
   async checkPhoneAuthStatus(): Promise<PhoneAuthStatus> {
     const url = `${API_BASE_URL}${AUTH_API_PREFIX}/phone-auth/status`;
+    const headers = await this.buildSignedHeaders('', false);
     const client = http.createHttp();
     try {
       const response = await client.request(url, {
         method: http.RequestMethod.GET,
-        header: {
-          'X-App-Id': AUTH_APP_ID,
-          'X-Device-Id': this.deviceId,
-        },
+        header: headers,
         connectTimeout: 5000,
         readTimeout: 5000,
       });
@@ -470,17 +619,13 @@ class ApiService {
       appVersion: '1.0.0'
     });
 
+    const finalHeaders = await this.buildSignedHeaders(body, false);
+    if (attemptId !== undefined) {
+      finalHeaders['X-Client-Attempt-Id'] = attemptId.toString();
+    }
+
     const client = http.createHttp();
     try {
-      const finalHeaders: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'X-App-Id': AUTH_APP_ID,
-        'X-Device-Id': this.deviceId,
-      };
-      if (attemptId !== undefined) {
-        finalHeaders['X-Client-Attempt-Id'] = attemptId.toString();
-      }
-
       const response = await client.request(url, {
         method: http.RequestMethod.POST,
         header: finalHeaders,
@@ -497,9 +642,10 @@ class ApiService {
         
         const data = result.data as Record<string, Object>;
         const token = data['accessToken'] as string || '';
+        const refreshToken = data['refreshToken'] as string || '';
         if (!token) throw new ApiError('未获取到 Token');
         
-        await this.setToken(token, context);
+        await this.setTokens(token, refreshToken, context);
         return token;
       } else {
         throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
@@ -519,42 +665,45 @@ class ApiService {
    * 获取当前用户信息
    */
   async getCurrentUserInfo(): Promise<UserInfo> {
-    const url = `${API_BASE_URL}/api/app/user/info`;
-    const client = http.createHttp();
+    return this.withAuthRetry(async () => {
+      const url = `${API_BASE_URL}/api/app/user/info`;
+      const headers = await this.buildSignedHeaders('', true);
+      const client = http.createHttp();
 
-    try {
-      const response = await client.request(url, {
-        method: http.RequestMethod.GET,
-        header: this.getAuthHeaders(),
-        connectTimeout: 5000,
-        readTimeout: 5000,
-      });
+      try {
+        const response = await client.request(url, {
+          method: http.RequestMethod.GET,
+          header: headers,
+          connectTimeout: 5000,
+          readTimeout: 5000,
+        });
 
-      if (response.responseCode === 200) {
-        const result = JSON.parse(response.result as string) as UnifiedResult;
-        if (result.code !== 0) {
-           throw new ApiError(result.message || 'Get user info failed', result.code, result.traceId);
+        if (response.responseCode === 200) {
+          const result = JSON.parse(response.result as string) as UnifiedResult;
+          if (result.code !== 0) {
+             throw new ApiError(result.message || 'Get user info failed', result.code, result.traceId);
+          }
+          
+          const data = result.data as Record<string, Object>;
+          const userInfo = new UserInfo();
+          userInfo.id = data['id'] as number || 0;
+          userInfo.phone = data['phone'] as string || '';
+          userInfo.nickname = data['nickname'] as string || '';
+          userInfo.avatar = data['avatar'] as string || '';
+          userInfo.vipStatus = data['vipStatus'] as string || 'NORMAL';
+          
+          return userInfo;
+        } else {
+           throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
         }
-        
-        const data = result.data as Record<string, Object>;
-        const userInfo = new UserInfo();
-        userInfo.id = data['id'] as number || 0;
-        userInfo.phone = data['phone'] as string || '';
-        userInfo.nickname = data['nickname'] as string || '';
-        userInfo.avatar = data['avatar'] as string || '';
-        userInfo.vipStatus = data['vipStatus'] as string || 'NORMAL';
-        
-        return userInfo;
-      } else {
-         throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        console.error('[ApiService] Get user info failed:', JSON.stringify(error));
+        throw error as Error;
+      } finally {
+        client.destroy();
       }
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      console.error('[ApiService] Get user info failed:', JSON.stringify(error));
-      throw error as Error;
-    } finally {
-      client.destroy();
-    }
+    });
   }
 
   /**
@@ -566,15 +715,12 @@ class ApiService {
     const client = http.createHttp();
     try {
       if (this.token) {
+        const logoutBody = '{}';
+        const headers = await this.buildSignedHeaders(logoutBody, true);
         await client.request(url, {
           method: http.RequestMethod.POST,
-          header: {
-            'Content-Type': 'application/json',
-            'X-App-Id': AUTH_APP_ID,
-            'X-Device-Id': this.deviceId,
-            'Authorization': `Bearer ${this.token}`
-          },
-          extraData: '{}',
+          header: headers,
+          extraData: logoutBody,
           connectTimeout: 5000,
           readTimeout: 5000,
         });

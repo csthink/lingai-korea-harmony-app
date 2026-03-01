@@ -14,6 +14,13 @@ export const API_BASE_URL: string = UNIFIED_BASE_URL;
 // ---- Unified 网关常量 ----
 export const APP_ID: string = 'lingai-harmony';
 export const AUTH_APP_ID: string = '1';
+// ---- 请求签名 ----
+// ⚠️ 占位值——请勿将真实密钥提交到仓库
+// 本地调试：调用 ApiService.getInstance().overrideSignConfig('真实Key', '真实PEM私钥') 注入
+export const APP_KEY: string = '__APP_KEY_PLACEHOLDER__';
+export const APP_PRIVATE_KEY: string = `-----BEGIN PRIVATE KEY-----
+__APP_PRIVATE_KEY_BASE64_PLACEHOLDER__
+-----END PRIVATE KEY-----`;
 // ---- 一键登录（阿里云 PNVS）----
 // 当前生效方案：LingAI-HarmonyOS 号码认证  |  更新时间：2026-02-13
 // ⚠️ 占位值——请勿将真实密钥提交到仓库
@@ -196,6 +203,7 @@ export class STORAGE_KEYS {
   static readonly LEARNING_STATE: string = 'learning_state';
   static readonly DAILY_TASK: string = 'daily_task';
   static readonly AUTH_TOKEN: string = 'auth_token';
+  static readonly REFRESH_TOKEN: string = 'refresh_token';
   static readonly DEVICE_ID: string = 'device_id';
 }
 
