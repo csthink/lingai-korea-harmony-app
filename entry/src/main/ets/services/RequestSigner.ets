@@ -4,7 +4,7 @@
  * 适配 ArkTS 严格模式
  */
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
-import { buffer, util } from '@kit.ArkTS';
+import { buffer } from '@kit.ArkTS';
 
 export class RequestSigner {
   /**
@@ -15,37 +15,31 @@ export class RequestSigner {
    */
   static async signRsaSha256(content: string, privateKeyPem: string): Promise<string> {
     try {
-      // 1. 解析 PEM → DER (去掉头尾 + base64 decode)
-      const pemBody = privateKeyPem
-        .replace(/-----BEGIN PRIVATE KEY-----/, '')
-        .replace(/-----END PRIVATE KEY-----/, '')
-        .replace(/[\r\n\s]/g, '');
-
-      const base64Helper = new util.Base64Helper();
-      const derBytes = base64Helper.decodeSync(pemBody);
-
-      // 2. 构造 DataBlob
-      const keyBlob: cryptoFramework.DataBlob = { data: derBytes };
-
-      // 3. 创建 RSA 密钥生成器并恢复私钥
-      const rsaGenerator = cryptoFramework.createAsyKeyGenerator('RSA');
-      const keyPair = await rsaGenerator.convertKey(null, keyBlob);
+      // 1. 创建 RSA 密钥生成器并从 PEM 恢复私钥
+      //    真机实测: `RSA` + convertKey(der) 在部分设备会报 401 参数错误
+      //    使用 `RSA2048|PRIMES_2` + convertPemKey 兼容性更稳定
+      const rsaGenerator = cryptoFramework.createAsyKeyGenerator('RSA2048|PRIMES_2');
+      const normalizedPem = privateKeyPem.replace(/\r\n/g, '\n').trim();
+      const keyPair = await rsaGenerator.convertPemKey(null, normalizedPem);
       const priKey = keyPair.priKey;
 
-      // 4. 创建签名实例 (SHA256withRSA, PKCS1 填充)
+      // 2. 创建签名实例 (SHA256withRSA, PKCS1 填充)
       const signer = cryptoFramework.createSign('RSA|PKCS1|SHA256');
       await signer.init(priKey);
 
-      // 5. 将待签名内容转为 DataBlob
+      // 3. 将待签名内容转为 DataBlob
+      // 注意：不能使用 `.buffer` 直接包裹，避免带入底层池化缓冲区的无关字节
+      const contentBytes = buffer.from(content, 'utf-8');
+      const contentData = new Uint8Array(Array.from(contentBytes.values()));
       const contentBlob: cryptoFramework.DataBlob = {
-        data: new Uint8Array(buffer.from(content, 'utf-8').buffer)
+        data: contentData
       };
 
-      // 6. 签名
+      // 4. 签名
       const signResult = await signer.sign(contentBlob);
 
-      // 7. 将签名结果转为 Base64
-      return base64Helper.encodeToStringSync(signResult.data);
+      // 5. 将签名结果转为 Base64
+      return buffer.from(signResult.data).toString('base64');
     } catch (error) {
       console.error('[RequestSigner] RSA-SHA256 sign failed:', JSON.stringify(error));
       throw new Error(`[RequestSigner] Sign failed: ${JSON.stringify(error)}`);

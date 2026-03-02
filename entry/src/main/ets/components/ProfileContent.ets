@@ -142,12 +142,22 @@ export struct ProfileContent {
         await oneClickService.init(context as common.UIAbilityContext);
         await oneClickService.prefetch();
       } else {
-        // 开关关闭，直接显示短信登录
-        this.showSmsFallback = true;
+        this.showSmsFallback = false;
+        this.oneClickErrorMsg = '当前环境暂不支持本机一键登录，请联系测试负责人';
       }
     } catch (error) {
       console.error('[ProfileContent] Init one-click failed:', error);
-      this.showSmsFallback = true;
+      this.showSmsFallback = false;
+      this.oneClickEnabled = false;
+      if (error instanceof ApiError) {
+        if (error.code === 1002) {
+          this.oneClickErrorMsg = '客户端签名校验失败，请安装最新调试包后重试';
+        } else {
+          this.oneClickErrorMsg = error.message || '一键登录初始化失败，请稍后重试';
+        }
+      } else {
+        this.oneClickErrorMsg = '一键登录初始化失败，请稍后重试';
+      }
     }
   }
 
@@ -185,12 +195,12 @@ export struct ProfileContent {
          this.syncLoginStateFromToken();
        }
       
-      let toastMsg = '一键登录失败，已切换短信登录';
+      let toastMsg = '一键登录失败，请稍后重试';
       let shouldCooldown = false;
 
       if (error instanceof ApiError) {
         // 后端业务错误
-        toastMsg = `一键登录失败（${error.message}），已切换短信登录`;
+        toastMsg = `一键登录失败（${error.message}）`;
         console.error(`[ProfileContent] Backend Error traceId=${error.traceId}`);
         
         // 3008: 请求过于频繁
@@ -211,21 +221,20 @@ export struct ProfileContent {
           case OneClickError.AUTH_PAGE_CLOSED:
             this.isOneClickLoading = false;
             if (this.showMainSheet) {
-              this.showSmsFallback = true;
-              toastMsg = '授权页已关闭，已切换短信登录';
+              toastMsg = '授权页已关闭';
               promptAction.showToast({ message: toastMsg, duration: 3000 });
             } else {
               console.info('[ProfileContent] Auth page closed and returned to profile silently.');
             }
             return;
           case OneClickError.USER_CANCELLED:
-            toastMsg = '用户取消授权，已切换短信登录';
+            toastMsg = '用户取消授权';
             break;
           case OneClickError.NO_SIM:
-            toastMsg = '未检测到SIM卡，已切换短信登录';
+            toastMsg = '未检测到 SIM 卡，无法本机一键登录';
             break;
           case OneClickError.NETWORK_ERROR:
-            toastMsg = `网络连接失败（${code}），已切换短信登录`;
+            toastMsg = `网络连接失败（${code}）`;
             break;
           case OneClickError.TIMEOUT:
             if (oneClickService.isAuthPageVisible()) {
@@ -233,34 +242,31 @@ export struct ProfileContent {
               this.isOneClickLoading = false;
               return;
             }
-            toastMsg = `请求超时（${code}），已切换短信登录`;
+            toastMsg = `请求超时（${code}）`;
             break;
           case OneClickError.CARRIER_ERROR:
-            toastMsg = `运营商鉴权失败（${code}），已切换短信登录`;
+            toastMsg = `运营商鉴权失败（${code}）`;
             break;
           case OneClickError.SDK_NOT_AVAILABLE:
-            toastMsg = `环境不支持一键登录（${code}），已切换短信登录`;
+            toastMsg = `环境不支持一键登录（${code}）`;
             break;
           case OneClickError.RATE_LIMIT:
-            toastMsg = `请求过于频繁，请稍后重试，已切换短信登录`;
+            toastMsg = '请求过于频繁，请稍后重试';
             shouldCooldown = true;
             break;
           default:
-            toastMsg = `一键登录失败（${rawMsg}），已切换短信登录`;
+            toastMsg = `一键登录失败（${rawMsg}）`;
             break;
         }
       }
       
       if (shouldCooldown) {
         this.startOneClickCooldown();
-        toastMsg = '请求频繁，请 8 秒后重试，已可切换短信登录';
+        toastMsg = '请求频繁，请 8 秒后重试';
       }
       
       this.oneClickErrorMsg = toastMsg;
       promptAction.showToast({ message: toastMsg, duration: 3000 });
-      
-      // 失败后展开短信登录
-      this.showSmsFallback = true;
     }
   }
 
@@ -894,145 +900,44 @@ export struct ProfileContent {
             .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
             .margin({ top: 8, bottom: 24 })
 
-          // 一键登录入口
+          // 仅保留“本机号码一键登录”入口
           if (this.oneClickEnabled) {
-            Column() {
-              Button(
-                this.isOneClickLoading ? '正在启动...' : 
-                (this.oneClickCooldownSec > 0 ? `${this.oneClickCooldownSec}s 后重试` : '本机号码一键登录')
-              )
-                .type(ButtonType.Capsule)
-                .backgroundColor(this.oneClickCooldownSec > 0 ? '#94a3b8' : '#6366f1')
-                .fontColor('#ffffff')
-                .fontSize(16)
-                .fontWeight(FontWeight.Bold)
-                .width('100%')
-                .height(54)
-                .enabled(!this.isOneClickLoading && this.oneClickCooldownSec <= 0)
-                .onClick(() => {
-                  this.performOneClickLogin();
-                })
-              
-              if (!this.showSmsFallback) {
-                 Row() {
-                    Divider().width('35%').color(themeManager.isDark() ? '#334155' : '#e2e8f0')
-                    Text('或').fontSize(12).fontColor(themeManager.isDark() ? '#64748b' : '#94a3b8').margin({ left: 10, right: 10 })
-                    Divider().width('35%').color(themeManager.isDark() ? '#334155' : '#e2e8f0')
-                 }.margin({ top: 24, bottom: 24 })
+            Button(
+              this.isOneClickLoading ? '正在启动...' :
+              (this.oneClickCooldownSec > 0 ? `${this.oneClickCooldownSec}s 后重试` : '本机号码一键登录')
+            )
+              .type(ButtonType.Capsule)
+              .backgroundColor(this.oneClickCooldownSec > 0 ? '#94a3b8' : '#6366f1')
+              .fontColor('#ffffff')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .width('100%')
+              .height(54)
+              .enabled(!this.isOneClickLoading && this.oneClickCooldownSec <= 0)
+              .onClick(() => {
+                this.performOneClickLogin();
+              })
+          } else {
+            Text(this.oneClickErrorMsg.length > 0
+              ? this.oneClickErrorMsg
+              : '当前环境暂不支持本机一键登录，请联系测试负责人')
+              .fontSize(14)
+              .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+              .textAlign(TextAlign.Center)
+              .margin({ top: 8, bottom: 12 })
+              .width('100%')
 
-                 Text('其他手机号码登录 >')
-                   .fontSize(14)
-                   .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-                   .onClick(() => {
-                     this.showSmsFallback = true;
-                   })
-                   .padding(10)
-              }
-            }
-            .width('100%')
-            .margin({ bottom: this.showSmsFallback ? 20 : 0 })
-          }
-
-          // 短信登录表单
-          if (this.showSmsFallback || !this.oneClickEnabled) {
-             Column() {
-               // 手机号输入
-               Column({ space: 8 }) {
-                 Text('手机号')
-                   .fontSize(14)
-                   .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-                   .width('100%')
-                 TextInput({ placeholder: '请输入手机号', text: this.phoneNumber })
-                   .type(InputType.PhoneNumber)
-                   .maxLength(11)
-                   .height(48)
-                   .borderRadius(12)
-                   .backgroundColor(this.phoneError
-                     ? (themeManager.isDark() ? 'rgba(127,29,29,0.25)' : '#fef2f2')
-                     : (themeManager.isDark() ? 'rgba(15,23,42,0.75)' : '#f1f5f9'))
-                   .border({ width: this.phoneError ? 1 : 0, color: '#ef4444' })
-                   .fontColor(themeManager.isDark() ? '#f8fafc' : '#0f172a')
-                   .placeholderColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-                   .onChange((value: string) => {
-                     // 限制只能输入数字，最多11位
-                     const cleanValue = value.replace(/\D/g, '').slice(0, 11);
-                     this.phoneNumber = cleanValue;
-                     // 手机号格式验证
-                     if (cleanValue.length > 0 && cleanValue.length < 11) {
-                       this.phoneError = '请输入完整的11位手机号';
-                     } else if (cleanValue.length === 11 && !/^1[3-9]\d{9}$/.test(cleanValue)) {
-                       this.phoneError = '手机号格式不正确';
-                     } else {
-                       this.phoneError = '';
-                     }
-                   })
-                 
-                 // 错误提示
-                 if (this.phoneError) {
-                   Text(this.phoneError)
-                     .fontSize(12)
-                     .fontColor('#ef4444')
-                     .width('100%')
-                 }
-               }
-               .width('100%')
-       
-               // 验证码输入
-               Column({ space: 8 }) {
-                 Text('验证码')
-                   .fontSize(14)
-                   .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-                   .width('100%')
-                 Row() {
-                   TextInput({ placeholder: '请输入验证码', text: this.verifyCode })
-                     .type(InputType.Number)
-                     .height(48)
-                     .borderRadius(12)
-                     .backgroundColor(themeManager.isDark() ? 'rgba(15,23,42,0.75)' : '#f1f5f9')
-                     .fontColor(themeManager.isDark() ? '#f8fafc' : '#0f172a')
-                     .placeholderColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-                     .layoutWeight(1)
-                     .onChange((value: string) => {
-                       this.verifyCode = value;
-                     })
-                   Button(this.countdown > 0 ? `${this.countdown}s` : '获取验证码')
-                     .type(ButtonType.Capsule)
-                     .backgroundColor(this.countdown > 0
-                       ? (themeManager.isDark() ? '#334155' : '#e2e8f0')
-                       : (themeManager.isDark() ? 'rgba(99,102,241,0.25)' : '#6366f1'))
-                     .fontColor(this.countdown > 0
-                       ? (themeManager.isDark() ? '#64748b' : '#94a3b8')
-                       : '#ffffff')
-                     .fontSize(14)
-                     .height(44)
-                     .margin({ left: 12 })
-                     .enabled(this.phoneNumber.length === 11 && this.countdown === 0)
-                     .onClick(() => {
-                       this.startCountdown();
-                     })
-                 }
-                 .width('100%')
-               }
-               .width('100%')
-               .margin({ top: 16 })
-       
-               // 登录按钮
-               Button(this.sheetMode === 'login-upgrade' ? '登录并订阅' : '登录')
-                 .type(ButtonType.Capsule)
-                 .backgroundColor('#6366f1')
-                 .fontColor('#ffffff')
-                 .fontSize(16)
-                 .fontWeight(FontWeight.Bold)
-                 .width('100%')
-                 .height(54)
-                 .margin({ top: 24 })
-                 .enabled(this.phoneNumber.length === 11 && this.verifyCode.length >= 4)
-                 .opacity(this.phoneNumber.length === 11 && this.verifyCode.length >= 4 ? 1 : 0.5)
-                 .onClick(() => {
-                   this.performSheetLogin();
-                 })
-             }
-             .width('100%')
+            Button('重新检测一键登录')
+              .type(ButtonType.Normal)
+              .backgroundColor(themeManager.isDark() ? 'rgba(99,102,241,0.2)' : '#eef2ff')
+              .fontColor('#6366f1')
+              .fontSize(14)
+              .height(42)
+              .width('100%')
+              .onClick(() => {
+                this.oneClickErrorMsg = '';
+                this.initOneClickLogin(getContext(this));
+              })
           }
 
           // 返回按钮（仅在login-upgrade模式显示）

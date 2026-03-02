@@ -3,8 +3,9 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 
+import ApiService from '../services/ApiService';
 import OneClickAuthService from '../services/OneClickAuthService';
-import { PNVS_AUTH_SECRET_DEV } from '../local/Secret.dev';
+import { APP_KEY_DEV, APP_PRIVATE_KEY_DEV, PNVS_AUTH_SECRET_DEV } from '../local/Secret.dev';
 import { ConsoleInterceptor } from '../utils/ConsoleInterceptor';
 
 const DOMAIN = 0x0000;
@@ -22,6 +23,11 @@ export default class EntryAbility extends UIAbility {
     
     // 初始化一键登录 SDK (不阻断启动)
     try {
+      // 启动时注入 App 验签密钥（来自本地忽略文件，不入库）
+      if (APP_KEY_DEV && APP_KEY_DEV.trim().length > 0 && APP_PRIVATE_KEY_DEV && APP_PRIVATE_KEY_DEV.trim().length > 0) {
+        ApiService.getInstance().overrideSignConfig(APP_KEY_DEV.trim(), APP_PRIVATE_KEY_DEV);
+      }
+
       // 启动时注入真实密钥 (来自本地忽略文件)
       if (PNVS_AUTH_SECRET_DEV && PNVS_AUTH_SECRET_DEV.trim().length > 0) {
         OneClickAuthService.getInstance().overrideSecret(PNVS_AUTH_SECRET_DEV.trim());

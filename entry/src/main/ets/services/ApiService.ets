@@ -583,7 +583,9 @@ class ApiService {
 
       if (response.responseCode === 200) {
         const result = JSON.parse(response.result as string) as UnifiedResult;
-        if (result.code !== 0) return new PhoneAuthStatus();
+        if (result.code !== 0) {
+          throw new ApiError(result.message || '检测一键登录状态失败', result.code, result.traceId);
+        }
         
         const data = result.data as Record<string, boolean>;
         const status = new PhoneAuthStatus();
@@ -595,10 +597,13 @@ class ApiService {
         }
         return status;
       }
-      return new PhoneAuthStatus();
+      throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
     } catch (error) {
-      console.warn('[ApiService] Check phone auth status failed, default to SMS');
-      return new PhoneAuthStatus();
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      console.warn('[ApiService] Check phone auth status failed:', JSON.stringify(error));
+      throw new ApiError('检测一键登录状态失败，请检查网络');
     } finally {
       client.destroy();
     }
