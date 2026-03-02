@@ -8,7 +8,7 @@ import { COLORS, MASTERY_THRESHOLD, MAX_SKIP_WORDS, QUIZ_TYPE_BASIC_RECOGNITION 
 import { WordEntry, Quiz, QuizOption, QuizStem, LessonStatus, ExampleSentence } from '../models/DataModels';
 import { FlashCard } from '../components/FlashCard';
 import { QuizCard } from '../components/QuizCard';
-import ApiService from '../services/ApiService';
+import ApiService, { ApiError } from '../services/ApiService';
 import AudioService from '../services/AudioService';
 import { VocabularyService } from '../services/VocabularyService';
 import { DictContent } from '../components/DictContent';
@@ -33,6 +33,12 @@ class LessonParams {
   title: string = '';
 }
 
+class IndexRouteParams {
+  tabIndex: number = 0;
+  navFrom: string = '';
+  navAt: number = 0;
+}
+
 @Entry
 @Component
 struct LessonPage {
@@ -41,6 +47,8 @@ struct LessonPage {
   @State words: WordEntry[] = [];
   @State currentWordIndex: number = 0;
   @State loadingError: string = '';
+  @State loadingNeedLogin: boolean = false;
+  @State navigatingToLogin: boolean = false;
 
   // 预习相关
   @State skippedCount: number = 0;
@@ -131,6 +139,7 @@ struct LessonPage {
   async loadLessonData() {
     this.phase = LearningPhase.LOADING;
     this.loadingError = '';
+    this.loadingNeedLogin = false;
     
     // 读取用户设置的每关单词数
     try {
@@ -143,6 +152,11 @@ struct LessonPage {
     
     try {
       const api = ApiService.getInstance();
+      if (!api.getToken()) {
+        this.loadingNeedLogin = true;
+        this.loadingError = '登录状态已失效或未登录，请先登录后再开始学习';
+        return;
+      }
       const response = await api.getLessonWords(this.lessonInfo.level, this.lessonInfo.lessonId, this.wordsPerLesson);
       
       if (response && response.words && response.words.length > 0) {
@@ -184,9 +198,44 @@ struct LessonPage {
         // 保持 LOADING 状态，不进入学习流程
       }
     } catch (error) {
-      console.error('Failed to load lesson data');
-      this.loadingError = '加载失败，请检查网络后重试';
+      console.error('Failed to load lesson data:', JSON.stringify(error));
+      if (error instanceof ApiError && (error.code === 401 || error.code === 2001 || error.code === 2002)) {
+        this.loadingNeedLogin = true;
+        this.loadingError = '登录状态已失效，请重新登录后继续学习';
+        return;
+      }
+      this.loadingError = '加载失败，请稍后重试';
       // 保持 LOADING 状态，用户可通过重试按钮重新加载
+    }
+  }
+
+  private async goLoginTab(): Promise<void> {
+    if (this.navigatingToLogin) {
+      return;
+    }
+    this.navigatingToLogin = true;
+    const targetParams = new IndexRouteParams();
+    targetParams.tabIndex = 3;
+    targetParams.navFrom = 'lesson_login';
+    targetParams.navAt = Date.now();
+
+    try {
+      await router.replaceUrl({
+        url: 'pages/Index',
+        params: targetParams
+      });
+    } catch (replaceErr) {
+      console.warn('[LessonPage] replaceUrl to login tab failed, fallback pushUrl:', JSON.stringify(replaceErr));
+      try {
+        await router.pushUrl({
+          url: 'pages/Index',
+          params: targetParams
+        });
+      } catch (pushErr) {
+        console.error('[LessonPage] pushUrl fallback failed:', JSON.stringify(pushErr));
+      }
+    } finally {
+      this.navigatingToLogin = false;
     }
   }
 
@@ -342,11 +391,11 @@ struct LessonPage {
           .fontColor(COLORS.TEXT_SECONDARY)
           .margin({ top: 16 })
       } else {
-        Image($r('app.media.ic_retry'))
+        Image(this.loadingNeedLogin ? $r('app.media.ic_lock') : $r('app.media.ic_retry'))
           .width(64)
           .height(64)
-          .fillColor(COLORS.TEXT_SECONDARY)
-          .opacity(0.5)
+          .fillColor(this.loadingNeedLogin ? COLORS.WARNING : COLORS.TEXT_SECONDARY)
+          .opacity(0.8)
 
         Text(this.loadingError)
           .fontSize(16)
@@ -354,7 +403,7 @@ struct LessonPage {
           .margin({ top: 16 })
           .textAlign(TextAlign.Center)
 
-        Button('重试')
+        Button(this.loadingNeedLogin ? '去登录' : '重试')
           .type(ButtonType.Capsule)
           .backgroundColor(COLORS.PRIMARY)
           .fontColor('#ffffff')
@@ -364,6 +413,10 @@ struct LessonPage {
           .padding({ left: 32, right: 32 })
           .margin({ top: 24 })
           .onClick(() => {
+            if (this.loadingNeedLogin) {
+              this.goLoginTab();
+              return;
+            }
             this.loadLessonData();
           })
       }

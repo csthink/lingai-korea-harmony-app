@@ -1006,7 +1006,11 @@ class ApiService {
       const result = await this.get(`/api/content/words/level/${level}/lesson/${lessonId}?words_per_lesson=${wordsPerLesson}`);
       return JSON.parse(result) as LessonWordsResponse;
     } catch (error) {
-      console.error(`[ApiService] Get level ${level} lesson ${lessonId} words failed`);
+      if (error instanceof ApiError) {
+        console.error(`[ApiService] Get level ${level} lesson ${lessonId} words failed: code=${error.code}, msg=${error.message}, traceId=${error.traceId}`);
+        throw error;
+      }
+      console.error(`[ApiService] Get level ${level} lesson ${lessonId} words failed:`, JSON.stringify(error));
       throw new ApiError(`Get level ${level} lesson ${lessonId} words failed`);
     }
   }
