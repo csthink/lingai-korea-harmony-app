@@ -77,6 +77,19 @@ class DatabaseService {
   }
 
   /**
+   * 安全关闭结果集，吞掉异常避免掩盖外层真实错误
+   */
+  private closeQuietly(resultSet: relationalStore.ResultSet | null): void {
+    try {
+      if (resultSet) {
+        resultSet.close();
+      }
+    } catch (e) {
+      console.error('[DatabaseService] closeQuietly error:', e);
+    }
+  }
+
+  /**
    * 初始化数据库
    */
   async init(context: Context): Promise<void> {
@@ -112,22 +125,27 @@ class DatabaseService {
   async insertWords(words: WordEntry[]): Promise<void> {
     if (!this.rdbStore) throw new Error('Database not initialized');
 
-    for (const word of words) {
-      const valueBucket: relationalStore.ValuesBucket = {
-        id: word.id,
-        hangul: word.hangul,
-        romanization: word.romanization,
-        pos: word.pos,
-        primary_meaning: word.primaryMeaning,
-        senses: JSON.stringify(word.senses),
-        collocations: JSON.stringify(word.collocations),
-        examples: JSON.stringify(word.examples),
-        topik_level: word.topikLevel,
-        freq_rank: word.freqRank,
-        lesson_id: word.lessonId,
-      };
+    try {
+      for (const word of words) {
+        const valueBucket: relationalStore.ValuesBucket = {
+          id: word.id,
+          hangul: word.hangul,
+          romanization: word.romanization,
+          pos: word.pos,
+          primary_meaning: word.primaryMeaning,
+          senses: JSON.stringify(word.senses),
+          collocations: JSON.stringify(word.collocations),
+          examples: JSON.stringify(word.examples),
+          topik_level: word.topikLevel,
+          freq_rank: word.freqRank,
+          lesson_id: word.lessonId,
+        };
 
-      await this.rdbStore.insert('word_entry', valueBucket);
+        await this.rdbStore.insert('word_entry', valueBucket);
+      }
+    } catch (e) {
+      console.error('[DatabaseService] insertWords error:', e);
+      throw e instanceof Error ? e : new Error(String(e));
     }
   }
 
@@ -135,57 +153,99 @@ class DatabaseService {
    * 获取关卡词条
    */
   async getWordsByLesson(lessonId: number): Promise<WordEntry[]> {
-    if (!this.rdbStore) throw new Error('Database not initialized');
-
-    const predicates = new relationalStore.RdbPredicates('word_entry');
-    predicates.equalTo('lesson_id', lessonId);
-
-    const resultSet = await this.rdbStore.query(predicates);
-    const words: WordEntry[] = [];
-
-    while (resultSet.goToNextRow()) {
-      words.push(this.parseWordEntry(resultSet));
+    if (!this.rdbStore) {
+      console.error('[DatabaseService] getWordsByLesson failed: rdbStore is null');
+      return [];
     }
 
-    resultSet.close();
-    return words;
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      const predicates = new relationalStore.RdbPredicates('word_entry');
+      predicates.equalTo('lesson_id', lessonId);
+
+      resultSet = await this.rdbStore.query(predicates);
+      const words: WordEntry[] = [];
+
+      while (resultSet.goToNextRow()) {
+        words.push(this.parseWordEntry(resultSet));
+      }
+
+      return words;
+    } catch (e) {
+      console.error('[DatabaseService] getWordsByLesson error:', e);
+      return [];
+    } finally {
+      this.closeQuietly(resultSet);
+    }
   }
 
   /**
    * 根据韩文查词
    */
   async searchWord(hangul: string): Promise<WordEntry | null> {
-    if (!this.rdbStore) throw new Error('Database not initialized');
-
-    const predicates = new relationalStore.RdbPredicates('word_entry');
-    predicates.equalTo('hangul', hangul);
-
-    const resultSet = await this.rdbStore.query(predicates);
-    
-    if (resultSet.goToNextRow()) {
-      const word = this.parseWordEntry(resultSet);
-      resultSet.close();
-      return word;
+    if (!this.rdbStore) {
+      console.error('[DatabaseService] searchWord failed: rdbStore is null');
+      return null;
     }
 
-    resultSet.close();
-    return null;
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      const predicates = new relationalStore.RdbPredicates('word_entry');
+      predicates.equalTo('hangul', hangul);
+
+      resultSet = await this.rdbStore.query(predicates);
+      
+      if (resultSet.goToNextRow()) {
+        return this.parseWordEntry(resultSet);
+      }
+
+      return null;
+    } catch (e) {
+      console.error('[DatabaseService] searchWord error:', e);
+      return null;
+    } finally {
+      this.closeQuietly(resultSet);
+    }
   }
 
+  /**
+   * 安全解析 WordEntry，字段异常不中断整条记录
+   */
   private parseWordEntry(resultSet: relationalStore.ResultSet): WordEntry {
-    return {
-      id: resultSet.getLong(resultSet.getColumnIndex('id')),
-      hangul: resultSet.getString(resultSet.getColumnIndex('hangul')),
-      romanization: resultSet.getString(resultSet.getColumnIndex('romanization')),
-      pos: resultSet.getString(resultSet.getColumnIndex('pos')),
-      primaryMeaning: resultSet.getString(resultSet.getColumnIndex('primary_meaning')),
-      senses: JSON.parse(resultSet.getString(resultSet.getColumnIndex('senses')) || '[]'),
-      collocations: JSON.parse(resultSet.getString(resultSet.getColumnIndex('collocations')) || '[]'),
-      examples: JSON.parse(resultSet.getString(resultSet.getColumnIndex('examples')) || '[]'),
-      topikLevel: resultSet.getLong(resultSet.getColumnIndex('topik_level')),
-      freqRank: resultSet.getLong(resultSet.getColumnIndex('freq_rank')),
-      lessonId: resultSet.getLong(resultSet.getColumnIndex('lesson_id')),
-    };
+    const word = new WordEntry();
+
+    // 基础字段
+    try {
+      word.id = resultSet.getLong(resultSet.getColumnIndex('id'));
+      word.hangul = resultSet.getString(resultSet.getColumnIndex('hangul'));
+      word.romanization = resultSet.getString(resultSet.getColumnIndex('romanization'));
+      word.pos = resultSet.getString(resultSet.getColumnIndex('pos'));
+      word.primaryMeaning = resultSet.getString(resultSet.getColumnIndex('primary_meaning'));
+      word.topikLevel = resultSet.getLong(resultSet.getColumnIndex('topik_level'));
+      word.freqRank = resultSet.getLong(resultSet.getColumnIndex('freq_rank'));
+      word.lessonId = resultSet.getLong(resultSet.getColumnIndex('lesson_id'));
+    } catch (e) {
+      console.error('[DatabaseService] parseWordEntry basic fields error:', e);
+    }
+
+    // JSON 字段逐个解析，失败使用默认空数组
+    try {
+      word.senses = JSON.parse(resultSet.getString(resultSet.getColumnIndex('senses')) || '[]');
+    } catch (_) {
+      word.senses = [];
+    }
+    try {
+      word.collocations = JSON.parse(resultSet.getString(resultSet.getColumnIndex('collocations')) || '[]');
+    } catch (_) {
+      word.collocations = [];
+    }
+    try {
+      word.examples = JSON.parse(resultSet.getString(resultSet.getColumnIndex('examples')) || '[]');
+    } catch (_) {
+      word.examples = [];
+    }
+
+    return word;
   }
 
   // ==================== 进度操作 ====================
@@ -194,37 +254,62 @@ class DatabaseService {
    * 获取关卡进度
    */
   async getLessonProgress(lessonId: number): Promise<LessonProgress | null> {
-    if (!this.rdbStore) throw new Error('Database not initialized');
-
-    const predicates = new relationalStore.RdbPredicates('lesson_progress');
-    predicates.equalTo('lesson_id', lessonId);
-
-    const resultSet = await this.rdbStore.query(predicates);
-
-    if (resultSet.goToNextRow()) {
-      const progress = new LessonProgress();
-      progress.lessonId = resultSet.getLong(resultSet.getColumnIndex('lesson_id'));
-      progress.level = resultSet.getLong(resultSet.getColumnIndex('level'));
-      progress.status = resultSet.getLong(resultSet.getColumnIndex('status')) as LessonStatus;
-      progress.masteredCount = resultSet.getLong(resultSet.getColumnIndex('mastered_count'));
-      progress.masteredWordIds = JSON.parse(resultSet.getString(resultSet.getColumnIndex('mastered_words')) || '[]') as number[];
-      progress.skippedWordIds = JSON.parse(resultSet.getString(resultSet.getColumnIndex('skipped_words')) || '[]') as number[];
-      // 手动解析correctCounts
-      const countsJson = resultSet.getString(resultSet.getColumnIndex('correct_counts')) || '{}';
-      const countsObj = JSON.parse(countsJson) as Record<string, number>;
-      progress.correctCounts = new Map<number, number>();
-      const keys = Object.keys(countsObj);
-      for (let i = 0; i < keys.length; i++) {
-        const key = keys[i];
-        progress.correctCounts.set(parseInt(key), countsObj[key]);
-      }
-      progress.updatedAt = resultSet.getLong(resultSet.getColumnIndex('updated_at'));
-      resultSet.close();
-      return progress;
+    if (!this.rdbStore) {
+      console.error('[DatabaseService] getLessonProgress failed: rdbStore is null');
+      return null;
     }
 
-    resultSet.close();
-    return null;
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      const predicates = new relationalStore.RdbPredicates('lesson_progress');
+      predicates.equalTo('lesson_id', lessonId);
+
+      resultSet = await this.rdbStore.query(predicates);
+
+      if (resultSet.goToNextRow()) {
+        const progress = new LessonProgress();
+        progress.lessonId = resultSet.getLong(resultSet.getColumnIndex('lesson_id'));
+        progress.level = resultSet.getLong(resultSet.getColumnIndex('level'));
+        progress.status = resultSet.getLong(resultSet.getColumnIndex('status')) as LessonStatus;
+        progress.masteredCount = resultSet.getLong(resultSet.getColumnIndex('mastered_count'));
+
+        try {
+          progress.masteredWordIds = JSON.parse(resultSet.getString(resultSet.getColumnIndex('mastered_words')) || '[]') as number[];
+        } catch (_) {
+          progress.masteredWordIds = [];
+        }
+
+        try {
+          progress.skippedWordIds = JSON.parse(resultSet.getString(resultSet.getColumnIndex('skipped_words')) || '[]') as number[];
+        } catch (_) {
+          progress.skippedWordIds = [];
+        }
+
+        // 手动解析 correctCounts
+        try {
+          const countsJson = resultSet.getString(resultSet.getColumnIndex('correct_counts')) || '{}';
+          const countsObj = JSON.parse(countsJson) as Record<string, number>;
+          progress.correctCounts = new Map<number, number>();
+          const keys = Object.keys(countsObj);
+          for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            progress.correctCounts.set(parseInt(key), countsObj[key]);
+          }
+        } catch (_) {
+          progress.correctCounts = new Map<number, number>();
+        }
+
+        progress.updatedAt = resultSet.getLong(resultSet.getColumnIndex('updated_at'));
+        return progress;
+      }
+
+      return null;
+    } catch (e) {
+      console.error('[DatabaseService] getLessonProgress error:', e);
+      return null;
+    } finally {
+      this.closeQuietly(resultSet);
+    }
   }
 
   /**
@@ -257,14 +342,24 @@ class DatabaseService {
     const predicates = new relationalStore.RdbPredicates('lesson_progress');
     predicates.equalTo('lesson_id', progress.lessonId);
 
-    const resultSet = await this.rdbStore.query(predicates);
-    const exists = resultSet.goToNextRow();
-    resultSet.close();
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      resultSet = await this.rdbStore.query(predicates);
+      const exists = resultSet.goToNextRow();
+      // 关闭后再执行写操作
+      this.closeQuietly(resultSet);
+      resultSet = null;
 
-    if (exists) {
-      await this.rdbStore.update(valueBucket, predicates);
-    } else {
-      await this.rdbStore.insert('lesson_progress', valueBucket);
+      if (exists) {
+        await this.rdbStore.update(valueBucket, predicates);
+      } else {
+        await this.rdbStore.insert('lesson_progress', valueBucket);
+      }
+    } catch (e) {
+      console.error('[DatabaseService] updateLessonProgress error:', e);
+      throw e instanceof Error ? e : new Error(String(e));
+    } finally {
+      this.closeQuietly(resultSet);
     }
   }
 
@@ -279,16 +374,21 @@ class DatabaseService {
   async addToWordbook(wordId: number, source: string = 'dictionary'): Promise<void> {
     if (!this.rdbStore) throw new Error('Database not initialized');
 
-    const now = Date.now();
-    const valueBucket: relationalStore.ValuesBucket = {
-      word_id: wordId,
-      source: source,
-      created_at: now,
-      next_review_at: now,  // D0: 立即复习
-      review_stage: 0,
-    };
+    try {
+      const now = Date.now();
+      const valueBucket: relationalStore.ValuesBucket = {
+        word_id: wordId,
+        source: source,
+        created_at: now,
+        next_review_at: now,  // D0: 立即复习
+        review_stage: 0,
+      };
 
-    await this.rdbStore.insert('wordbook', valueBucket);
+      await this.rdbStore.insert('wordbook', valueBucket);
+    } catch (e) {
+      console.error('[DatabaseService] addToWordbook error:', e);
+      throw e instanceof Error ? e : new Error(String(e));
+    }
   }
 
   /**
@@ -296,30 +396,44 @@ class DatabaseService {
    * 获取待复习词汇（RDB wordbook 表）
    */
   async getWordsToReview(limit: number = 20): Promise<WordbookEntry[]> {
-    if (!this.rdbStore) throw new Error('Database not initialized');
-
-    const predicates = new relationalStore.RdbPredicates('wordbook');
-    predicates.lessThanOrEqualTo('next_review_at', Date.now());
-    predicates.orderByAsc('next_review_at');
-    predicates.limitAs(limit);
-
-    const resultSet = await this.rdbStore.query(predicates);
-    const entries: WordbookEntry[] = [];
-
-    while (resultSet.goToNextRow()) {
-      entries.push({
-        id: resultSet.getLong(resultSet.getColumnIndex('id')),
-        wordId: resultSet.getLong(resultSet.getColumnIndex('word_id')),
-        source: resultSet.getString(resultSet.getColumnIndex('source')),
-        createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
-        nextReviewAt: resultSet.getLong(resultSet.getColumnIndex('next_review_at')),
-        reviewStage: resultSet.getLong(resultSet.getColumnIndex('review_stage')),
-        aiMnemonic: resultSet.getString(resultSet.getColumnIndex('ai_mnemonic')),
-      });
+    if (!this.rdbStore) {
+      console.error('[DatabaseService] getWordsToReview failed: rdbStore is null');
+      return [];
     }
 
-    resultSet.close();
-    return entries;
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      const predicates = new relationalStore.RdbPredicates('wordbook');
+      predicates.lessThanOrEqualTo('next_review_at', Date.now());
+      predicates.orderByAsc('next_review_at');
+      predicates.limitAs(limit);
+
+      resultSet = await this.rdbStore.query(predicates);
+      const entries: WordbookEntry[] = [];
+
+      while (resultSet.goToNextRow()) {
+        try {
+          entries.push({
+            id: resultSet.getLong(resultSet.getColumnIndex('id')),
+            wordId: resultSet.getLong(resultSet.getColumnIndex('word_id')),
+            source: resultSet.getString(resultSet.getColumnIndex('source')),
+            createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
+            nextReviewAt: resultSet.getLong(resultSet.getColumnIndex('next_review_at')),
+            reviewStage: resultSet.getLong(resultSet.getColumnIndex('review_stage')),
+            aiMnemonic: resultSet.getString(resultSet.getColumnIndex('ai_mnemonic')),
+          });
+        } catch (rowErr) {
+          console.error('[DatabaseService] getWordsToReview parse row error:', rowErr);
+        }
+      }
+
+      return entries;
+    } catch (e) {
+      console.error('[DatabaseService] getWordsToReview error:', e);
+      return [];
+    } finally {
+      this.closeQuietly(resultSet);
+    }
   }
 
   // ==================== 每日任务操作 ====================
@@ -328,42 +442,54 @@ class DatabaseService {
    * 获取今日任务
    */
   async getTodayTask(): Promise<DailyTask> {
+    const today = new Date().toISOString().split('T')[0];
+
     if (!this.rdbStore) {
       console.error('[DatabaseService] getTodayTask failed: rdbStore is null');
-      throw new Error('Database not initialized');
+      const fallback = new DailyTask();
+      fallback.date = today;
+      fallback.updatedAt = Date.now();
+      return fallback;
     }
 
-    const today = new Date().toISOString().split('T')[0];
     console.info('[DatabaseService] getTodayTask for date:', today);
-    
-    const predicates = new relationalStore.RdbPredicates('daily_task');
-    predicates.equalTo('date', today);
 
-    const resultSet = await this.rdbStore.query(predicates);
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      const predicates = new relationalStore.RdbPredicates('daily_task');
+      predicates.equalTo('date', today);
 
-    if (resultSet.goToNextRow()) {
-      const task = new DailyTask();
-      task.date = resultSet.getString(resultSet.getColumnIndex('date'));
-      task.lessonStepDone = resultSet.getLong(resultSet.getColumnIndex('lesson_step_done'));
-      task.reviewCount = resultSet.getLong(resultSet.getColumnIndex('review_count'));
-      task.studyMinutes = resultSet.getLong(resultSet.getColumnIndex('study_minutes'));
-      task.updatedAt = resultSet.getLong(resultSet.getColumnIndex('updated_at'));
-      resultSet.close();
-      console.info('[DatabaseService] Found existing task:', JSON.stringify(task));
-      return task;
+      resultSet = await this.rdbStore.query(predicates);
+
+      if (resultSet.goToNextRow()) {
+        const task = new DailyTask();
+        task.date = resultSet.getString(resultSet.getColumnIndex('date'));
+        task.lessonStepDone = resultSet.getLong(resultSet.getColumnIndex('lesson_step_done'));
+        task.reviewCount = resultSet.getLong(resultSet.getColumnIndex('review_count'));
+        task.studyMinutes = resultSet.getLong(resultSet.getColumnIndex('study_minutes'));
+        task.updatedAt = resultSet.getLong(resultSet.getColumnIndex('updated_at'));
+        console.info('[DatabaseService] Found existing task:', JSON.stringify(task));
+        return task;
+      }
+
+      // 返回默认任务
+      const defaultTask = new DailyTask();
+      defaultTask.date = today;
+      defaultTask.lessonStepDone = 0;
+      defaultTask.reviewCount = 0;
+      defaultTask.studyMinutes = 0;
+      defaultTask.updatedAt = Date.now();
+      console.info('[DatabaseService] Created default task:', JSON.stringify(defaultTask));
+      return defaultTask;
+    } catch (e) {
+      console.error('[DatabaseService] getTodayTask error:', e);
+      const fallback = new DailyTask();
+      fallback.date = today;
+      fallback.updatedAt = Date.now();
+      return fallback;
+    } finally {
+      this.closeQuietly(resultSet);
     }
-
-    resultSet.close();
-    
-    // 返回默认任务
-    const defaultTask = new DailyTask();
-    defaultTask.date = today;
-    defaultTask.lessonStepDone = 0;
-    defaultTask.reviewCount = 0;
-    defaultTask.studyMinutes = 0;
-    defaultTask.updatedAt = Date.now();
-    console.info('[DatabaseService] Created default task:', JSON.stringify(defaultTask));
-    return defaultTask;
   }
 
   /**
@@ -388,16 +514,26 @@ class DatabaseService {
     const predicates = new relationalStore.RdbPredicates('daily_task');
     predicates.equalTo('date', task.date);
 
-    const resultSet = await this.rdbStore.query(predicates);
-    const exists = resultSet.goToNextRow();
-    resultSet.close();
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      resultSet = await this.rdbStore.query(predicates);
+      const exists = resultSet.goToNextRow();
+      // 关闭后再执行写操作
+      this.closeQuietly(resultSet);
+      resultSet = null;
 
-    if (exists) {
-      await this.rdbStore.update(valueBucket, predicates);
-      console.info('[DatabaseService] Updated existing task');
-    } else {
-      await this.rdbStore.insert('daily_task', valueBucket);
-      console.info('[DatabaseService] Inserted new task');
+      if (exists) {
+        await this.rdbStore.update(valueBucket, predicates);
+        console.info('[DatabaseService] Updated existing task');
+      } else {
+        await this.rdbStore.insert('daily_task', valueBucket);
+        console.info('[DatabaseService] Inserted new task');
+      }
+    } catch (e) {
+      console.error('[DatabaseService] updateTodayTask error:', e);
+      throw e instanceof Error ? e : new Error(String(e));
+    } finally {
+      this.closeQuietly(resultSet);
     }
   }
 
@@ -407,25 +543,36 @@ class DatabaseService {
   async getAllDailyTasks(): Promise<DailyTask[]> {
     if (!this.rdbStore) {
       console.error('[DatabaseService] getAllDailyTasks failed: rdbStore is null');
-      throw new Error('Database not initialized');
+      return [];
     }
 
-    const tasks: DailyTask[] = [];
-    const predicates = new relationalStore.RdbPredicates('daily_task');
-    const resultSet = await this.rdbStore.query(predicates);
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      const tasks: DailyTask[] = [];
+      const predicates = new relationalStore.RdbPredicates('daily_task');
+      resultSet = await this.rdbStore.query(predicates);
 
-    while (resultSet.goToNextRow()) {
-      const task = new DailyTask();
-      task.date = resultSet.getString(resultSet.getColumnIndex('date'));
-      task.lessonStepDone = resultSet.getLong(resultSet.getColumnIndex('lesson_step_done'));
-      task.reviewCount = resultSet.getLong(resultSet.getColumnIndex('review_count'));
-      task.studyMinutes = resultSet.getLong(resultSet.getColumnIndex('study_minutes'));
-      task.updatedAt = resultSet.getLong(resultSet.getColumnIndex('updated_at'));
-      tasks.push(task);
+      while (resultSet.goToNextRow()) {
+        try {
+          const task = new DailyTask();
+          task.date = resultSet.getString(resultSet.getColumnIndex('date'));
+          task.lessonStepDone = resultSet.getLong(resultSet.getColumnIndex('lesson_step_done'));
+          task.reviewCount = resultSet.getLong(resultSet.getColumnIndex('review_count'));
+          task.studyMinutes = resultSet.getLong(resultSet.getColumnIndex('study_minutes'));
+          task.updatedAt = resultSet.getLong(resultSet.getColumnIndex('updated_at'));
+          tasks.push(task);
+        } catch (rowErr) {
+          console.error('[DatabaseService] getAllDailyTasks parse row error:', rowErr);
+        }
+      }
+
+      return tasks;
+    } catch (e) {
+      console.error('[DatabaseService] getAllDailyTasks error:', e);
+      return [];
+    } finally {
+      this.closeQuietly(resultSet);
     }
-
-    resultSet.close();
-    return tasks;
   }
 
   /**
@@ -434,26 +581,37 @@ class DatabaseService {
   async getRecentDailyTasks(days: number = 7): Promise<DailyTask[]> {
     if (!this.rdbStore) {
       console.error('[DatabaseService] getRecentDailyTasks failed: rdbStore is null');
-      throw new Error('Database not initialized');
+      return [];
     }
 
-    const tasks: DailyTask[] = [];
-    const predicates = new relationalStore.RdbPredicates('daily_task');
-    predicates.orderByDesc('date').limitAs(days);
-    const resultSet = await this.rdbStore.query(predicates);
+    let resultSet: relationalStore.ResultSet | null = null;
+    try {
+      const tasks: DailyTask[] = [];
+      const predicates = new relationalStore.RdbPredicates('daily_task');
+      predicates.orderByDesc('date').limitAs(days);
+      resultSet = await this.rdbStore.query(predicates);
 
-    while (resultSet.goToNextRow()) {
-      const task = new DailyTask();
-      task.date = resultSet.getString(resultSet.getColumnIndex('date'));
-      task.lessonStepDone = resultSet.getLong(resultSet.getColumnIndex('lesson_step_done'));
-      task.reviewCount = resultSet.getLong(resultSet.getColumnIndex('review_count'));
-      task.studyMinutes = resultSet.getLong(resultSet.getColumnIndex('study_minutes'));
-      task.updatedAt = resultSet.getLong(resultSet.getColumnIndex('updated_at'));
-      tasks.push(task);
+      while (resultSet.goToNextRow()) {
+        try {
+          const task = new DailyTask();
+          task.date = resultSet.getString(resultSet.getColumnIndex('date'));
+          task.lessonStepDone = resultSet.getLong(resultSet.getColumnIndex('lesson_step_done'));
+          task.reviewCount = resultSet.getLong(resultSet.getColumnIndex('review_count'));
+          task.studyMinutes = resultSet.getLong(resultSet.getColumnIndex('study_minutes'));
+          task.updatedAt = resultSet.getLong(resultSet.getColumnIndex('updated_at'));
+          tasks.push(task);
+        } catch (rowErr) {
+          console.error('[DatabaseService] getRecentDailyTasks parse row error:', rowErr);
+        }
+      }
+
+      return tasks;
+    } catch (e) {
+      console.error('[DatabaseService] getRecentDailyTasks error:', e);
+      return [];
+    } finally {
+      this.closeQuietly(resultSet);
     }
-
-    resultSet.close();
-    return tasks;
   }
 }
 
