@@ -46,6 +46,7 @@ export struct StudyContent {
   @State ripple3Opacity: number = 0.2;  // 第3层波纹透明度
   @State themeVersion: number = 0;
 
+  private isNavigating: boolean = false;
   // 从 API 加载的每个 level 的数据（key: level值）
   private levelLessonCounts: Map<number, number> = new Map();  // 接口 lesson_count
   private levelWordCounts: Map<number, number> = new Map();    // 接口 word_count（兆底）
@@ -463,14 +464,22 @@ export struct StudyContent {
     }
   }
 
-  goToLesson(lessonId: number) {
-    router.pushUrl({
-      url: 'pages/LessonPage',
-      params: {
-        lessonId: lessonId,
-        level: this.currentLevel,
-        title: '关卡 ' + lessonId.toString()
-      }
-    });
+  async goToLesson(lessonId: number) {
+    if (this.isNavigating) return;
+    this.isNavigating = true;
+    try {
+      await router.pushUrl({
+        url: 'pages/LessonPage',
+        params: {
+          lessonId: lessonId,
+          level: this.currentLevel,
+          title: '关卡 ' + lessonId.toString()
+        }
+      });
+    } catch (e) {
+      console.error('[StudyContent] navigation failed:', e);
+    } finally {
+      this.isNavigating = false;
+    }
   }
 }

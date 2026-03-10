@@ -26,6 +26,7 @@ export struct HomeContent {
   @State lessonTitle: string = '关卡 1';
   @State themeVersion: number = 0;
 
+  private isNavigating: boolean = false;
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
   private unsubscribeTheme: (() => void) | null = null;
 
@@ -346,27 +347,43 @@ export struct HomeContent {
     .padding({ left: 20, right: 20 })
   }
 
-  startLearning() {
-    router.pushUrl({
-      url: 'pages/LessonPage',
-      params: {
-        lessonId: this.currentLessonId,
-        level: this.currentLevel,
-        title: this.lessonTitle
-      }
-    });
+  async startLearning() {
+    if (this.isNavigating) return;
+    this.isNavigating = true;
+    try {
+      await router.pushUrl({
+        url: 'pages/LessonPage',
+        params: {
+          lessonId: this.currentLessonId,
+          level: this.currentLevel,
+          title: this.lessonTitle
+        }
+      });
+    } catch (e) {
+      console.error('[HomeContent] navigation failed:', e);
+    } finally {
+      this.isNavigating = false;
+    }
   }
 
-  startReview() {
-    router.pushUrl({
-      url: 'pages/LessonPage',
-      params: {
-        lessonId: this.currentLessonId,
-        level: this.currentLevel,
-        title: '智能复习',
-        isReview: true
-      }
-    });
+  async startReview() {
+    if (this.isNavigating) return;
+    this.isNavigating = true;
+    try {
+      await router.pushUrl({
+        url: 'pages/LessonPage',
+        params: {
+          lessonId: this.currentLessonId,
+          level: this.currentLevel,
+          title: '智能复习',
+          isReview: true
+        }
+      });
+    } catch (e) {
+      console.error('[HomeContent] navigation failed:', e);
+    } finally {
+      this.isNavigating = false;
+    }
   }
 
   /**
