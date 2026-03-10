@@ -3,7 +3,7 @@
  * 提供外观切换、学习配置和退出登录功能
  */
 import router from '@ohos.router';
-import { LightTheme, DarkTheme, WORDS_PER_LESSON } from '../utils/Constants';
+import { WORDS_PER_LESSON } from '../utils/Constants';
 import { globalTheme, themeManager } from '../utils/ThemeManager';
 import preferences from '@ohos.data.preferences';
 import ApiService from '../services/ApiService';
@@ -75,12 +75,12 @@ struct SettingsPage {
         Row() {
           Text('←')
             .fontSize(18)
-            .fontColor(this.isDarkMode ? DarkTheme.TEXT_MAIN : LightTheme.TEXT_MAIN)
+            .fontColor(themeManager.textMain)
         }
         .width(40)
         .height(40)
         .borderRadius(20)
-        .backgroundColor(this.isDarkMode ? DarkTheme.GLASS_SURFACE : '#ffffff')
+        .backgroundColor(themeManager.glassSurface)
         .justifyContent(FlexAlign.Center)
         .shadow({ radius: 4, color: 'rgba(0,0,0,0.08)', offsetY: 2 })
         .onClick(() => {
@@ -90,7 +90,7 @@ struct SettingsPage {
         Text('设置')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
-          .fontColor(this.isDarkMode ? DarkTheme.TEXT_MAIN : LightTheme.TEXT_MAIN)
+          .fontColor(themeManager.textMain)
           .margin({ left: 16 })
 
         Blank()
@@ -113,7 +113,7 @@ struct SettingsPage {
             // ========== 外观区块 ==========
             Text('外观')
               .fontSize(14)
-              .fontColor(this.isDarkMode ? DarkTheme.TEXT_SUB : LightTheme.TEXT_SUB)
+              .fontColor(themeManager.textSub)
               .width('100%')
               .padding({ left: 4, bottom: 12 })
 
@@ -123,7 +123,7 @@ struct SettingsPage {
                 .fontSize(18)
               Text('浅色模式')
                 .fontSize(16)
-                .fontColor(this.isDarkMode ? DarkTheme.TEXT_MAIN : LightTheme.TEXT_MAIN)
+                .fontColor(themeManager.textMain)
                 .margin({ left: 12 })
 
               Blank()
@@ -137,7 +137,7 @@ struct SettingsPage {
             }
             .width('100%')
             .padding(20)
-            .backgroundColor(this.isDarkMode ? DarkTheme.GLASS_SURFACE : '#ffffff')
+            .backgroundColor(themeManager.glassSurface)
             .borderRadius(16)
             .shadow({ radius: 8, color: this.isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(148,163,184,0.12)', offsetY: 2 })
             .margin({ bottom: 24 })
@@ -145,7 +145,7 @@ struct SettingsPage {
             // ========== 学习设置区块 ==========
             Text('学习设置')
               .fontSize(14)
-              .fontColor(this.isDarkMode ? DarkTheme.TEXT_SUB : LightTheme.TEXT_SUB)
+              .fontColor(themeManager.textSub)
               .width('100%')
               .padding({ left: 4, bottom: 12 })
 
@@ -156,7 +156,7 @@ struct SettingsPage {
                   .fontSize(18)
                 Text('每关单词数')
                   .fontSize(16)
-                  .fontColor(this.isDarkMode ? DarkTheme.TEXT_MAIN : LightTheme.TEXT_MAIN)
+                  .fontColor(themeManager.textMain)
                   .margin({ left: 12 })
 
                 Blank()
@@ -164,7 +164,7 @@ struct SettingsPage {
                 Text(`${this.wordsPerLesson}`)
                   .fontSize(16)
                   .fontWeight(FontWeight.Medium)
-                  .fontColor(this.isDarkMode ? DarkTheme.TEXT_MAIN : LightTheme.TEXT_MAIN)
+                  .fontColor(themeManager.textMain)
               }
               .width('100%')
 
@@ -176,7 +176,7 @@ struct SettingsPage {
                 style: SliderStyle.OutSet
               })
                 .blockColor('#6366f1')
-                .trackColor(this.isDarkMode ? DarkTheme.BORDER : '#e2e8f0')
+                .trackColor(themeManager.border)
                 .selectedColor('#6366f1')
                 .width('100%')
                 .margin({ top: 16 })
@@ -188,18 +188,18 @@ struct SettingsPage {
               Row() {
                 Text('10')
                   .fontSize(12)
-                  .fontColor(this.isDarkMode ? DarkTheme.TEXT_DIM : LightTheme.TEXT_DIM)
+                  .fontColor(themeManager.textDim)
                 Blank()
                 Text('100')
                   .fontSize(12)
-                  .fontColor(this.isDarkMode ? DarkTheme.TEXT_DIM : LightTheme.TEXT_DIM)
+                  .fontColor(themeManager.textDim)
               }
               .width('100%')
               .margin({ top: 4 })
             }
             .width('100%')
             .padding(20)
-            .backgroundColor(this.isDarkMode ? DarkTheme.GLASS_SURFACE : '#ffffff')
+            .backgroundColor(themeManager.glassSurface)
             .borderRadius(16)
             .shadow({ radius: 8, color: this.isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(148,163,184,0.12)', offsetY: 2 })
             .margin({ bottom: 32 })
@@ -257,7 +257,7 @@ struct SettingsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.isDarkMode ? DarkTheme.BG_BODY : LightTheme.BG_BODY)
+    .backgroundColor(themeManager.bgBody)
   }
 
   @Builder
@@ -271,8 +271,8 @@ struct SettingsPage {
     .width('100%')
     .height(74)
     .padding({ bottom: 14 })
-    .backgroundColor(this.isDarkMode ? DarkTheme.NAV_BG : LightTheme.NAV_BG)
-    .border({ width: 1, color: this.isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' })
+    .backgroundColor(themeManager.navBg)
+    .border({ width: 1, color: themeManager.glassBorder })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     .translate({ y: 8 })
   }
@@ -283,12 +283,12 @@ struct SettingsPage {
       Image(icon)
         .width(24)
         .height(24)
-        .fillColor(this.currentTabIndex === index ? '#6366f1' : (this.isDarkMode ? DarkTheme.TEXT_DIM : LightTheme.TEXT_DIM))
+        .fillColor(this.currentTabIndex === index ? '#6366f1' : themeManager.textDim)
 
       Text(title)
         .fontSize(11)
         .fontWeight(FontWeight.Medium)
-        .fontColor(this.currentTabIndex === index ? '#6366f1' : (this.isDarkMode ? DarkTheme.TEXT_DIM : LightTheme.TEXT_DIM))
+        .fontColor(this.currentTabIndex === index ? '#6366f1' : themeManager.textDim)
         .margin({ top: 6 })
     }
     .layoutWeight(1)

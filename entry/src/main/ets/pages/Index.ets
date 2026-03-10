@@ -5,7 +5,7 @@
  * 遵循原型图设计规范
  */
 import router from '@ohos.router';
-import { COLORS, TOPIK_LEVELS, TopikLevelConfig, WORDS_PER_LESSON, LightTheme, DarkTheme } from '../utils/Constants';
+import { COLORS, TOPIK_LEVELS, TopikLevelConfig, WORDS_PER_LESSON } from '../utils/Constants';
 import { LessonInfo, LessonStatus, DailyTask } from '../models/DataModels';
 import { HomeContent } from '../components/HomeContent';
 import { StudyContent } from '../components/StudyContent';
@@ -118,7 +118,7 @@ struct Index {
       .barMode(BarMode.Fixed)
       .barWidth('100%')
       .barHeight(0)
-      .barBackgroundColor(this.isDarkMode ? DarkTheme.NAV_BG : LightTheme.NAV_BG)
+      .barBackgroundColor(themeManager.navBg)
       .onChange((index: number) => {
         this.currentTabIndex = index;
       })
@@ -135,7 +135,7 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.isDarkMode ? DarkTheme.BG_BODY : LightTheme.BG_BODY)
+    .backgroundColor(themeManager.bgBody)
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     .bindSheet($$this.showSpiritPanel, this.SpiritPanelBuilder(), {
       height: '85%',
@@ -162,14 +162,14 @@ struct Index {
         .height(24)
         .fillColor(this.currentTabIndex === index
           ? COLORS.PRIMARY
-          : (this.isDarkMode ? DarkTheme.TEXT_DIM : LightTheme.TEXT_DIM))
+          : themeManager.textDim)
 
       Text(title)
         .fontSize(11)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.currentTabIndex === index
           ? COLORS.PRIMARY
-          : (this.isDarkMode ? DarkTheme.TEXT_DIM : LightTheme.TEXT_DIM))
+          : themeManager.textDim)
         .margin({ top: 6 })
     }
     .width('100%')
@@ -194,8 +194,8 @@ struct Index {
     .width('100%')
     .height(74)
     .padding({ bottom: 14 })
-    .backgroundColor(this.isDarkMode ? DarkTheme.NAV_BG : LightTheme.NAV_BG)
-    .border({ width: 1, color: this.isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' })
+    .backgroundColor(themeManager.navBg)
+    .border({ width: 1, color: themeManager.glassBorder })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     .translate({ y: 8 })
   }
@@ -208,14 +208,14 @@ struct Index {
         .height(24)
         .fillColor(this.currentTabIndex === index
           ? COLORS.PRIMARY
-          : (this.isDarkMode ? DarkTheme.TEXT_DIM : LightTheme.TEXT_DIM))
+          : themeManager.textDim)
 
       Text(title)
         .fontSize(11)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.currentTabIndex === index
           ? COLORS.PRIMARY
-          : (this.isDarkMode ? DarkTheme.TEXT_DIM : LightTheme.TEXT_DIM))
+          : themeManager.textDim)
         .margin({ top: 6 })
     }
     .layoutWeight(1)
