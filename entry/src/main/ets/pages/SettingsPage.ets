@@ -22,6 +22,7 @@ struct SettingsPage {
   @State currentTabIndex: number = 3;
   private context: Context | null = null;
   private isInitialized: boolean = false;
+  private isSwitchingTab: boolean = false;
 
   async aboutToAppear() {
     this.context = getContext(this);
@@ -299,13 +300,21 @@ struct SettingsPage {
     })
   }
 
-  private switchMainTab(index: number) {
+  private async switchMainTab(index: number) {
+    if (this.isSwitchingTab) return;
+    this.isSwitchingTab = true;
     this.currentTabIndex = index;
-    router.replaceUrl({
-      url: 'pages/Index',
-      params: {
-        tabIndex: index
-      }
-    });
+    try {
+      await router.replaceUrl({
+        url: 'pages/Index',
+        params: {
+          tabIndex: index
+        }
+      });
+    } catch (e) {
+      console.error('[SettingsPage] switchMainTab failed:', e);
+    } finally {
+      this.isSwitchingTab = false;
+    }
   }
 }

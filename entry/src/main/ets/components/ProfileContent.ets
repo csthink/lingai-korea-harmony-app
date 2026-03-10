@@ -222,7 +222,7 @@ export struct ProfileContent {
             this.isOneClickLoading = false;
             if (this.showMainSheet) {
               toastMsg = '授权页已关闭';
-              promptAction.showToast({ message: toastMsg, duration: 3000 });
+              this.safeShowToast(toastMsg, 3000);
             } else {
               console.info('[ProfileContent] Auth page closed and returned to profile silently.');
             }
@@ -266,7 +266,7 @@ export struct ProfileContent {
       }
       
       this.oneClickErrorMsg = toastMsg;
-      promptAction.showToast({ message: toastMsg, duration: 3000 });
+      this.safeShowToast(toastMsg, 3000);
     }
   }
 
@@ -290,7 +290,7 @@ export struct ProfileContent {
       this.dailyTask = task;
     });
     
-    promptAction.showToast({ message: '登录成功' });
+    this.safeShowToast('登录成功');
   }
 
   aboutToDisappear() {
@@ -313,6 +313,14 @@ export struct ProfileContent {
         this.oneClickCooldownTimer = -1;
       }
     }, 1000);
+  }
+
+  private safeShowToast(message: string, duration: number = 3000): void {
+    try {
+      promptAction.showToast({ message, duration });
+    } catch (e) {
+      console.error('[ProfileContent] showToast failed:', e);
+    }
   }
 
   build() {
@@ -743,7 +751,7 @@ export struct ProfileContent {
       } else {
         this.loginError = '发送验证码失败，请检查网络';
       }
-      promptAction.showToast({ message: this.loginError, duration: 3000 });
+      this.safeShowToast(this.loginError, 3000);
     });
   }
 
@@ -765,7 +773,7 @@ export struct ProfileContent {
       } else {
         this.loginError = '登录失败，请检查网络';
       }
-      promptAction.showToast({ message: this.loginError, duration: 3000 });
+      this.safeShowToast(this.loginError, 3000);
     });
   }
 
@@ -785,7 +793,7 @@ export struct ProfileContent {
       } else {
         this.loginError = '登录失败，请检查网络';
       }
-      promptAction.showToast({ message: this.loginError, duration: 3000 });
+      this.safeShowToast(this.loginError, 3000);
     });
   }
 
