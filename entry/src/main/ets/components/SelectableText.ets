@@ -46,12 +46,17 @@ export struct SelectableText {
     return koreanOrChinese.test(text);
   }
 
+  private safeShowToast(message: string, duration: number = 1500): void {
+    try {
+      promptAction.showToast({ message, duration });
+    } catch (e) {
+      console.error('[SelectableText] showToast failed:', e);
+    }
+  }
+
   // 显示空选区或无效选区提示
   showInvalidSelectionTip() {
-    promptAction.showToast({ 
-      message: '请选择韩文或中文字符', 
-      duration: 1500 
-    });
+    this.safeShowToast('请选择韩文或中文字符', 1500);
   }
 
   // 复制到剪贴板
@@ -64,7 +69,7 @@ export struct SelectableText {
       const pasteboardData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
       const systemPasteboard = pasteboard.getSystemPasteboard();
       await systemPasteboard.setData(pasteboardData);
-      promptAction.showToast({ message: '已复制', duration: 1500 });
+      this.safeShowToast('已复制', 1500);
     } catch (error) {
       console.error('[SelectableText] Copy failed:', JSON.stringify(error));
     }

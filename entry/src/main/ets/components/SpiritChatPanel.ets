@@ -50,13 +50,25 @@ export struct SpiritChatPanel {
   private apiService: ApiService = ApiService.getInstance();
   private chatService: SpiritChatService = SpiritChatService.getInstance();
   
+  private safeShowToast(message: string, duration: number = 1500): void {
+    try {
+      promptAction.showToast({ message, duration });
+    } catch (e) {
+      console.error('[SpiritChatPanel] showToast failed:', e);
+    }
+  }
+
   // 复制文本
-  copyText(text: string) {
-    const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
-    const systemPasteboard = pasteboard.getSystemPasteboard();
-    systemPasteboard.setData(pasteData);
-    // 显示提示
-    promptAction.showToast({ message: '已复制到剪贴板' });
+  async copyText(text: string) {
+    try {
+      const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      const systemPasteboard = pasteboard.getSystemPasteboard();
+      await systemPasteboard.setData(pasteData);
+      // 显示提示
+      this.safeShowToast('已复制到剪贴板');
+    } catch (error) {
+      console.error('[SpiritChatPanel] Copy failed:', JSON.stringify(error));
+    }
   }
   
   async aboutToAppear() {
