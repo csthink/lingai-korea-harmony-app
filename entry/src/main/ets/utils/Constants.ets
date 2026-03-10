@@ -194,8 +194,27 @@ export class AppColors {
   static get NAV_BG(): string { return runtimeIsDarkMode ? DarkTheme.NAV_BG : LightTheme.NAV_BG; }
 }
 
+// 兼容代理类 —— 避免 class 直接作为 object 导出（arkts-no-classes-as-obj）
+class ColorsCompat {
+  get PRIMARY(): string { return AppColors.PRIMARY; }
+  get PRIMARY_LIGHT(): string { return AppColors.PRIMARY_LIGHT; }
+  get PRIMARY_DARK(): string { return AppColors.PRIMARY_DARK; }
+  get SECONDARY(): string { return AppColors.SECONDARY; }
+  get ACCENT(): string { return AppColors.ACCENT; }
+  get SUCCESS(): string { return AppColors.SUCCESS; }
+  get WARNING(): string { return AppColors.WARNING; }
+  get ERROR(): string { return AppColors.ERROR; }
+  get BACKGROUND(): string { return AppColors.BACKGROUND; }
+  get SURFACE(): string { return AppColors.SURFACE; }
+  get TEXT_PRIMARY(): string { return AppColors.TEXT_PRIMARY; }
+  get TEXT_SECONDARY(): string { return AppColors.TEXT_SECONDARY; }
+  get TEXT_HINT(): string { return AppColors.TEXT_HINT; }
+  get BORDER(): string { return AppColors.BORDER; }
+  get NAV_BG(): string { return AppColors.NAV_BG; }
+}
+
 // 为了兼容性，保留 COLORS 对象
-export const COLORS = AppColors;
+export const COLORS = new ColorsCompat();
 
 // 存储 Key（聚合对象，与 PreferencesService 保持一致）
 export class STORAGE_KEYS {
