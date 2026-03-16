@@ -15,6 +15,7 @@ import { DictContent } from '../components/DictContent';
 import { FloatingSpirit } from '../components/FloatingSpirit';
 import { SpiritChatPanel } from '../components/SpiritChatPanel';
 import TaskTrackingService from '../services/TaskTrackingService';
+import PreferencesService from '../services/PreferencesService';
 import preferences from '@ohos.data.preferences';
 import { WORDS_PER_LESSON } from '../utils/Constants';
 
@@ -77,7 +78,9 @@ struct LessonPage {
   private audioService: AudioService = AudioService.getInstance();
   private vocabularyService: VocabularyService = VocabularyService.getInstance();
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
+  private preferencesService: PreferencesService = PreferencesService.getInstance();
   private lessonStepRecorded: boolean = false;
+  private learningProgressAdvanced: boolean = false;
 
   async addToVocabulary(hangul: string, meaning: string) {
     await this.vocabularyService.addWord(hangul, meaning, 'lesson');
@@ -612,12 +615,42 @@ struct LessonPage {
     this.currentQuizIndex = 0;
   }
 
+  private recordLessonStepOnce() {
+    if (this.lessonStepRecorded) {
+      return;
+    }
+
+    this.lessonStepRecorded = true;
+    this.taskService.recordLessonStep().catch((error: Object) => {
+      this.lessonStepRecorded = false;
+      console.error('[LessonPage] recordLessonStep failed:', JSON.stringify(error));
+    });
+  }
+
+  private async advanceLearningProgressIfCurrent(): Promise<void> {
+    if (!this.isPassed || this.learningProgressAdvanced) {
+      return;
+    }
+
+    try {
+      const context = getContext(this);
+      await this.preferencesService.init(context);
+      const state = await this.preferencesService.getLearningState();
+      if (state.currentLevel !== this.lessonInfo.level || state.currentLesson !== this.lessonInfo.lessonId) {
+        return;
+      }
+
+      await this.preferencesService.updateCurrentProgress(this.lessonInfo.level, this.lessonInfo.lessonId + 1);
+      this.learningProgressAdvanced = true;
+      console.info(`[LessonPage] learning progress advanced to lesson ${this.lessonInfo.lessonId + 1}`);
+    } catch (error) {
+      console.error('[LessonPage] advanceLearningProgressIfCurrent failed:', JSON.stringify(error));
+    }
+  }
+
   nextPreviewWord() {
     // 记录关卡步骤（首次完成预习步骤时）
-    if (!this.lessonStepRecorded) {
-      this.taskService.recordLessonStep();
-      this.lessonStepRecorded = true;
-    }
+    this.recordLessonStepOnce();
     
     if (this.currentWordIndex < this.words.length - 1) {
       // 淡出动画
@@ -724,11 +757,13 @@ struct LessonPage {
     .height('100%')
   }
 
-  nextQuiz() {
+  async nextQuiz() {
     if (this.currentQuizIndex < this.quizzes.length - 1) {
       this.currentQuizIndex++;
     } else {
       this.calculateResult();
+      await this.advanceLearningProgressIfCurrent();
+      this.recordLessonStepOnce();
       this.phase = LearningPhase.RESULT;
     }
   }

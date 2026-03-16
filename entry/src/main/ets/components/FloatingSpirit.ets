@@ -8,6 +8,7 @@ import { COLORS } from '../utils/Constants';
 export struct FloatingSpirit {
   // 点击回调
   onPress?: () => void;
+  subtle?: boolean;
   
   @State isPressed: boolean = false;
   @State breathScale: number = 1.0;
@@ -16,7 +17,9 @@ export struct FloatingSpirit {
   
   aboutToAppear() {
     // 呼吸灯动画
-    this.startBreathAnimation();
+    if (!this.subtle) {
+      this.startBreathAnimation();
+    }
   }
   
   aboutToDisappear() {
@@ -41,27 +44,30 @@ export struct FloatingSpirit {
   build() {
     Stack() {
       // 外圈光晕
-      Circle()
-        .width(64)
-        .height(64)
-        .fill('rgba(88, 86, 214, 0.2)')
-        .scale({ x: this.breathScale, y: this.breathScale })
+      if (!this.subtle) {
+        Circle()
+          .width(64)
+          .height(64)
+          .fill('rgba(88, 86, 214, 0.2)')
+          .scale({ x: this.breathScale, y: this.breathScale })
+      }
       
       // 主按钮
       Button() {
         Text('🧚')
-          .fontSize(28)
+          .fontSize(this.subtle ? 24 : 28)
       }
-      .width(56)
-      .height(56)
+      .width(this.subtle ? 48 : 56)
+      .height(this.subtle ? 48 : 56)
       .type(ButtonType.Circle)
       .backgroundColor(COLORS.PRIMARY)
       .shadow({
-        radius: 12,
-        color: 'rgba(88, 86, 214, 0.4)',
+        radius: this.subtle ? 8 : 12,
+        color: this.subtle ? 'rgba(88, 86, 214, 0.18)' : 'rgba(88, 86, 214, 0.4)',
         offsetX: 0,
-        offsetY: 4
+        offsetY: this.subtle ? 2 : 4
       })
+      .opacity(this.subtle ? 0.78 : 1)
       .scale({ x: this.isPressed ? 0.9 : 1.0, y: this.isPressed ? 0.9 : 1.0 })
       .animation({ duration: 100 })
       .onTouch((event: TouchEvent) => {

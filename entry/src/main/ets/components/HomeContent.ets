@@ -29,6 +29,25 @@ export struct HomeContent {
   private isNavigating: boolean = false;
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
   private unsubscribeTheme: (() => void) | null = null;
+  private unsubscribeTaskUpdate: (() => void) | null = null;
+  
+  private async refreshLearningSnapshot(context: Context) {
+    await this.loadLearningProgress(context);
+    this.streakDays = await this.taskService.getStreakDays();
+  }
+
+  private resolveFriendlyUserName(nickname: string, phone: string): string {
+    const trimmedNickname = nickname.trim();
+    if (trimmedNickname && !/^用户\d{3,}$/.test(trimmedNickname) && !/^user\d{3,}$/i.test(trimmedNickname)) {
+      return trimmedNickname;
+    }
+
+    if (phone.trim() && !phone.includes('*')) {
+      return phone.trim();
+    }
+
+    return '小灵友';
+  }
 
   async aboutToAppear() {
     if (this.unsubscribeTheme === null) {
@@ -39,24 +58,22 @@ export struct HomeContent {
 
     const context = getContext(this);
     await this.taskService.init(context);
-    this.dailyTask = this.taskService.getCurrentTask();
+    this.dailyTask = await this.taskService.refreshTask();
     this.refreshHomeStats();
 
-    this.taskService.setOnUpdateCallback((task: DailyTask) => {
-      this.dailyTask = task;
-      this.refreshHomeStats();
-      this.taskVersionKey++;
-    });
-
-    // 异步加载连续学习天数
-    this.taskService.getStreakDays().then((days: number) => {
-      this.streakDays = days;
-    });
+    if (this.unsubscribeTaskUpdate === null) {
+      this.unsubscribeTaskUpdate = this.taskService.subscribeOnUpdate((task: DailyTask) => {
+        this.dailyTask = task;
+        this.refreshHomeStats();
+        this.taskVersionKey++;
+        void this.refreshLearningSnapshot(context);
+      });
+    }
 
     // 加载真实用户信息
     await this.loadUserInfo(context);
-    // 加载学习进度（确定当前关卡）
-    await this.loadLearningProgress(context);
+    // 加载学习进度（确定当前关卡）和连续学习状态
+    await this.refreshLearningSnapshot(context);
   }
 
   /**
@@ -77,21 +94,15 @@ export struct HomeContent {
       const api = ApiService.getInstance();
       await api.init(context);
       if (!api.getToken()) {
-        this.userName = '同学';
+        this.userName = '小灵友';
         return;
       }
       const userInfo = await api.getCurrentUserInfo();
-      if (userInfo.nickname) {
-        this.userName = userInfo.nickname;
-      } else if (userInfo.phone) {
-        this.userName = userInfo.phone;
-      } else {
-        this.userName = '同学';
-      }
+      this.userName = this.resolveFriendlyUserName(userInfo.nickname, userInfo.phone);
     } catch (e) {
       console.warn('[HomeContent] loadUserInfo failed, using default');
       if (!this.userName) {
-        this.userName = '同学';
+        this.userName = '小灵友';
       }
     }
   }
@@ -136,6 +147,10 @@ export struct HomeContent {
   }
 
   aboutToDisappear() {
+    if (this.unsubscribeTaskUpdate !== null) {
+      this.unsubscribeTaskUpdate();
+      this.unsubscribeTaskUpdate = null;
+    }
     if (this.unsubscribeTheme !== null) {
       this.unsubscribeTheme();
       this.unsubscribeTheme = null;
@@ -170,7 +185,7 @@ export struct HomeContent {
   HeaderSection() {
     Row() {
       // 问候语
-      Text('Hello, ' + this.userName)
+      Text('你好，' + this.userName)
         .fontSize(26)
         .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)

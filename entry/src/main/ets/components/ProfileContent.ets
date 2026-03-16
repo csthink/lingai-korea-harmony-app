@@ -54,6 +54,7 @@ export struct ProfileContent {
 
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
   private unsubscribeTheme: (() => void) | null = null;
+  private unsubscribeTaskUpdate: (() => void) | null = null;
 
   // 获取图标背景色（添加15%透明度）
   getIconBgColor(iconColor: string): string {
@@ -81,14 +82,16 @@ export struct ProfileContent {
     this.syncLoginStateFromToken();
 
     await this.taskService.init(context);
-    this.dailyTask = this.taskService.getCurrentTask();
+    this.dailyTask = await this.taskService.refreshTask();
     this.lessonCount = this.dailyTask.lessonStepDone;
 
-    this.taskService.setOnUpdateCallback((task: DailyTask) => {
-      this.dailyTask = task;
-      this.lessonCount = task.lessonStepDone;
-      this.taskVersionKey++;
-    });
+    if (this.unsubscribeTaskUpdate === null) {
+      this.unsubscribeTaskUpdate = this.taskService.subscribeOnUpdate((task: DailyTask) => {
+        this.dailyTask = task;
+        this.lessonCount = task.lessonStepDone;
+        this.taskVersionKey++;
+      });
+    }
 
     // 初始化一键登录
     this.initOneClickLogin(context);
@@ -294,6 +297,10 @@ export struct ProfileContent {
   }
 
   aboutToDisappear() {
+    if (this.unsubscribeTaskUpdate !== null) {
+      this.unsubscribeTaskUpdate();
+      this.unsubscribeTaskUpdate = null;
+    }
     if (this.unsubscribeTheme !== null) {
       this.unsubscribeTheme();
       this.unsubscribeTheme = null;

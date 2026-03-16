@@ -13,12 +13,38 @@
           "storeFile": "/Users/mars/.ohos/config/default_lingai-korea-harmony-app_XYYlA8tmtvuScBFvCOrPD_UY6AS0N3I96zvjd0UmI6c=.p12",
           "storePassword": "***REMOVED***"
         }
+      },
+      {
+        "name": "release",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "/Users/mars/.ohos/config/release_lingai-korea-harmony-app_XYYlA8tmtvuScBFvCOrPD_UY6AS0N3I96zvjd0UmI6c=.p12",
+          "storePassword": "***REMOVED***",
+          "keyAlias": "debugKey",
+          "keyPassword": "***REMOVED***",
+          "signAlg": "SHA256withECDSA",
+          "profile": "/Users/mars/Downloads/agc/lingai-release-profile-20260315Release.p7b",
+          "certpath": "/Users/mars/Downloads/agc/lingai-release-20260315.cer"
+        }
       }
     ],
     "products": [
       {
         "name": "default",
         "signingConfig": "default",
+        "targetSdkVersion": "6.0.1(21)",
+        "compatibleSdkVersion": "6.0.1(21)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      },
+      {
+        "name": "appstore",
+        "signingConfig": "release",
         "targetSdkVersion": "6.0.1(21)",
         "compatibleSdkVersion": "6.0.1(21)",
         "runtimeOS": "HarmonyOS",
@@ -47,7 +73,8 @@
         {
           "name": "default",
           "applyToProducts": [
-            "default"
+            "default",
+            "appstore"
           ]
         }
       ]

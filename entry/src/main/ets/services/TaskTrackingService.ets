@@ -26,6 +26,7 @@ class TaskTrackingService {
   private isStudying: boolean = false;
   private initialized: boolean = false;
   private onUpdateCallback: ((task: DailyTask) => void) | null = null;
+  private updateSubscribers: Array<(task: DailyTask) => void> = [];
 
   private constructor() {
     this.dbService = DatabaseService.getInstance();
@@ -43,6 +44,16 @@ class TaskTrackingService {
    */
   setOnUpdateCallback(callback: ((task: DailyTask) => void) | null): void {
     this.onUpdateCallback = callback;
+  }
+
+  /**
+   * 订阅任务更新，支持首页/我的等多个组件同时监听
+   */
+  subscribeOnUpdate(callback: (task: DailyTask) => void): () => void {
+    this.updateSubscribers.push(callback);
+    return () => {
+      this.updateSubscribers = this.updateSubscribers.filter((item: (task: DailyTask) => void) => item !== callback);
+    };
   }
 
   /**
@@ -76,6 +87,7 @@ class TaskTrackingService {
    */
   async refreshTask(): Promise<DailyTask> {
     this.currentTask = await this.dbService.getTodayTask();
+    this.notifyTaskUpdated();
     return this.currentTask;
   }
 
@@ -222,12 +234,23 @@ class TaskTrackingService {
   private async saveTask(): Promise<void> {
     try {
       await this.dbService.updateTodayTask(this.currentTask);
-      // 通知订阅者任务已更新
-      if (this.onUpdateCallback) {
-        this.onUpdateCallback(this.currentTask);
-      }
+      this.notifyTaskUpdated();
     } catch (error) {
       console.error('Failed to save task:', error);
+    }
+  }
+
+  private notifyTaskUpdated(): void {
+    if (this.onUpdateCallback) {
+      this.onUpdateCallback(this.currentTask);
+    }
+
+    for (let i = 0; i < this.updateSubscribers.length; i++) {
+      try {
+        this.updateSubscribers[i](this.currentTask);
+      } catch (error) {
+        console.error('Task update subscriber failed:', error);
+      }
     }
   }
 }

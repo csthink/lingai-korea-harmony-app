@@ -127,11 +127,15 @@ struct Index {
 
       // 悬浮精灵按钮
       FloatingSpirit({
+        subtle: this.currentTabIndex === 0,
         onPress: () => {
           this.showSpiritPanel = true;
         }
       })
-      .margin({ right: 20, bottom: 105 })
+      .margin({
+        right: this.currentTabIndex === 0 ? 14 : 20,
+        bottom: this.currentTabIndex === 0 ? 88 : 105
+      })
     }
     .width('100%')
     .height('100%')
