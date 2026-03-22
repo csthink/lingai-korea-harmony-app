@@ -5,9 +5,9 @@
 
 // ---- API 基址（开发/联调切换） ----
 // 直连 FastAPI（仅本地调试用）
-export const FASTAPI_DIRECT_URL: string = 'http://192.168.1.38:8000';
+export const FASTAPI_DIRECT_URL: string = 'http://192.168.1.59:8000';
 // Unified Service 网关（联调 & 生产）
-export const UNIFIED_BASE_URL: string = 'http://192.168.1.38:8080';
+export const UNIFIED_BASE_URL: string = 'http://192.168.1.59:8080';
 // 当前生效基址 —— 切换此行即可
 export const API_BASE_URL: string = UNIFIED_BASE_URL;
 

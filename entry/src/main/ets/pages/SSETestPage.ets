@@ -27,7 +27,7 @@ struct SSETestPage {
   @State isDictTesting: boolean = false
   @State simpleStatus: string = '未测试'
   @State dictStatus: string = '未测试'
-  @State serverUrl: string = 'http://192.168.1.6:8000'
+  @State serverUrl: string = 'http://192.168.1.59:8000'
 
   build() {
     Column() {

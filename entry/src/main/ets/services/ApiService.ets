@@ -119,6 +119,7 @@ class ApiService {
 
   /**
    * 初始化：从 Preferences 加载 token 和 deviceId
+   * 优先使用 HarmonyOS 提供的稳定 ODID，避免卸载重装后 deviceId 漂移
    * 应在 App 入口（Index.aboutToAppear）调用一次
    */
   async init(context: Context): Promise<void> {
@@ -144,16 +145,24 @@ class ApiService {
 
       // 加载或生成 deviceId
       let savedDeviceId = await pref.get(STORAGE_KEYS.DEVICE_ID, '') as string;
-      if (!savedDeviceId) {
+      const stableDeviceId = this.resolveStableDeviceId();
+      if (stableDeviceId) {
+        if (savedDeviceId !== stableDeviceId) {
+          savedDeviceId = stableDeviceId;
+          await pref.put(STORAGE_KEYS.DEVICE_ID, savedDeviceId);
+          await pref.flush();
+          console.info('[ApiService] Using stable deviceId from HarmonyOS ODID');
+        }
+      } else if (!savedDeviceId) {
         savedDeviceId = this.generateUUID();
         await pref.put(STORAGE_KEYS.DEVICE_ID, savedDeviceId);
         await pref.flush();
-        console.info('[ApiService] Generated new deviceId: ' + savedDeviceId);
+        console.info('[ApiService] Generated fallback deviceId: ' + this.maskDeviceId(savedDeviceId));
       }
       this.deviceId = savedDeviceId;
 
       this.initialized = true;
-      console.info('[ApiService] Initialized (deviceId=' + this.deviceId + ', hasToken=' + (this.token.length > 0) + ', hasRefreshToken=' + (this.refreshToken.length > 0) + ')');
+      console.info('[ApiService] Initialized (deviceId=' + this.maskDeviceId(this.deviceId) + ', hasToken=' + (this.token.length > 0) + ', hasRefreshToken=' + (this.refreshToken.length > 0) + ')');
     } catch (error) {
       console.error('[ApiService] Init failed:', JSON.stringify(error));
     }
@@ -289,6 +298,54 @@ class ApiService {
       throw new ApiError(result.message || `Biz error (code=${result.code})`, result.code, result.traceId);
     }
     return result.data as Object;
+  }
+
+  /**
+   * 尝试从非 200 响应体中提取 Unified 的 message/code/traceId，
+   * 避免前端只拿到笼统的 "HTTP 500"。
+   */
+  private buildHttpError(responseCode: number, rawBody: string): ApiError {
+    try {
+      if (rawBody && rawBody.trim().length > 0) {
+        const parsed = JSON.parse(rawBody) as UnifiedResult;
+        const message = parsed.message || `HTTP ${responseCode}`;
+        const code = parsed.code || responseCode;
+        const traceId = parsed.traceId || '';
+        return new ApiError(message, code, traceId);
+      }
+    } catch (e) {
+      // 非 JSON 错误体时退回默认 HTTP 错误
+    }
+    return new ApiError(`HTTP ${responseCode}`, responseCode);
+  }
+
+  /**
+   * 优先使用系统级稳定 ODID 作为设备标识。
+   * 如果当前设备无法提供 ODID，则回退到本地持久化 UUID。
+   */
+  private resolveStableDeviceId(): string {
+    try {
+      const odid = (deviceInfo.ODID || '').trim();
+      if (odid.length > 0) {
+        return `odid:${odid}`;
+      }
+    } catch (error) {
+      console.warn('[ApiService] Resolve ODID failed, fallback to local UUID:', JSON.stringify(error));
+    }
+    return '';
+  }
+
+  /**
+   * 脱敏展示设备标识，避免将完整稳定标识输出到日志。
+   */
+  private maskDeviceId(deviceId: string): string {
+    if (!deviceId) {
+      return '';
+    }
+    if (deviceId.length <= 10) {
+      return deviceId;
+    }
+    return `${deviceId.slice(0, 6)}...${deviceId.slice(-4)}`;
   }
 
   /**
@@ -488,14 +545,15 @@ class ApiService {
         readTimeout: 15000,
       });
 
+      const rawBody = response.result as string;
       if (response.responseCode === 200) {
-        const result = JSON.parse(response.result as string) as UnifiedResult;
+        const result = JSON.parse(rawBody) as UnifiedResult;
         if (result.code !== 0) {
           throw new ApiError(result.message || '发送验证码失败', result.code, result.traceId);
         }
         console.info('[ApiService] SMS code sent successfully');
       } else {
-        throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+        throw this.buildHttpError(response.responseCode, rawBody);
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -536,8 +594,9 @@ class ApiService {
         readTimeout: 15000,
       });
 
+      const rawBody = response.result as string;
       if (response.responseCode === 200) {
-        const result = JSON.parse(response.result as string) as UnifiedResult;
+        const result = JSON.parse(rawBody) as UnifiedResult;
         if (result.code !== 0) {
           throw new ApiError(result.message || '登录失败', result.code, result.traceId);
         }
@@ -553,7 +612,7 @@ class ApiService {
 
         return accessToken;
       } else {
-        throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+        throw this.buildHttpError(response.responseCode, rawBody);
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -581,8 +640,9 @@ class ApiService {
         readTimeout: 5000,
       });
 
+      const rawBody = response.result as string;
       if (response.responseCode === 200) {
-        const result = JSON.parse(response.result as string) as UnifiedResult;
+        const result = JSON.parse(rawBody) as UnifiedResult;
         if (result.code !== 0) {
           throw new ApiError(result.message || '检测一键登录状态失败', result.code, result.traceId);
         }
@@ -597,7 +657,7 @@ class ApiService {
         }
         return status;
       }
-      throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+      throw this.buildHttpError(response.responseCode, rawBody);
     } catch (error) {
       if (error instanceof ApiError) {
         throw error;
@@ -639,8 +699,9 @@ class ApiService {
         readTimeout: 15000,
       });
 
+      const rawBody = response.result as string;
       if (response.responseCode === 200) {
-        const result = JSON.parse(response.result as string) as UnifiedResult;
+        const result = JSON.parse(rawBody) as UnifiedResult;
         if (result.code !== 0) {
           throw new ApiError(result.message || '一键登录失败', result.code, result.traceId);
         }
@@ -653,7 +714,7 @@ class ApiService {
         await this.setTokens(token, refreshToken, context);
         return token;
       } else {
-        throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+        throw this.buildHttpError(response.responseCode, rawBody);
       }
     } catch (error) {
       if (error instanceof ApiError) throw error;
