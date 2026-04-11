@@ -15,13 +15,16 @@ import common from '@ohos.app.ability.common';
 
 @Component
 export struct ProfileContent {
+  @Prop externalSheetMode: string = '';
+  @Prop @Watch('onExternalSheetRequestChange') externalSheetRequestAt: number = 0;
+  @Prop @Watch('onActiveTabIndexChange') activeTabIndex: number = -1;
   @State isLoggedIn: boolean = false;
   @State isPro: boolean = false;  // 区分Pro会员和普通会员
   @State userName: string = '点击登录/注册';
   @State userAvatar: string = '';
-  @State userStatus: string = '登录同步学习进度';
+  @State userStatus: string = '注册后解锁学习与词典';
   @State showMainSheet: boolean = false;  // 统一弹窗状态
-  @State sheetMode: string = 'vip';  // 'vip' | 'login' | 'login-upgrade'
+  @State sheetMode: string = 'vip';  // 'vip' | 'login'
   @State isSheetAnimating: boolean = false;  // 弹窗动画状态锁
   @State pendingSheetMode: string = '';  // 待打开的弹窗模式
   @State dailyTask: DailyTask = new DailyTask();
@@ -33,7 +36,6 @@ export struct ProfileContent {
   @State verifyCode: string = '';
   @State isGettingCode: boolean = false;
   @State countdown: number = 0;
-  @State showPaymentConfirmDialog: boolean = false;
   @State loginError: string = '';  // 登录/验证码错误提示
   @State isLoggingIn: boolean = false;  // 登录中状态锁
 
@@ -55,6 +57,7 @@ export struct ProfileContent {
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
   private unsubscribeTheme: (() => void) | null = null;
   private unsubscribeTaskUpdate: (() => void) | null = null;
+  private lastHandledExternalSheetRequestAt: number = 0;
 
   // 获取图标背景色（添加15%透明度）
   getIconBgColor(iconColor: string): string {
@@ -65,6 +68,13 @@ export struct ProfileContent {
       return 'rgba(6, 182, 212, 0.15)';
     }
     return 'rgba(99, 102, 241, 0.15)';
+  }
+
+  onActiveTabIndexChange(): void {
+    if (this.activeTabIndex !== 3) {
+      return;
+    }
+    void this.syncLoginStateFromToken();
   }
 
   async aboutToAppear() {
@@ -79,7 +89,7 @@ export struct ProfileContent {
     // 初始化 API 服务并检查登录态
     const apiService = ApiService.getInstance();
     await apiService.init(context);
-    this.syncLoginStateFromToken();
+    await this.syncLoginStateFromToken();
 
     await this.taskService.init(context);
     this.dailyTask = await this.taskService.refreshTask();
@@ -95,6 +105,7 @@ export struct ProfileContent {
 
     // 初始化一键登录
     this.initOneClickLogin(context);
+    this.tryOpenExternalSheet();
   }
 
   async syncLoginStateFromToken() {
@@ -108,26 +119,30 @@ export struct ProfileContent {
         this.userName = userInfo.phone || userInfo.nickname || '点击登录/注册';
         this.userAvatar = userInfo.avatar;
         
-        if (userInfo.vipStatus === 'PRO') {
+        if (userInfo.memberLevel === 'PRO') {
           this.isPro = true;
-          this.userStatus = 'LingAI Pro 会员';
+          this.userStatus = userInfo.memberLevelLabel;
         } else {
           this.isPro = false;
-          this.userStatus = 'LingAI 会员';
+          this.userStatus = userInfo.memberLevelLabel;
         }
       } catch (error) {
         console.warn('[ProfileContent] Sync login info failed:', error);
         // Token 可能失效，视为未登录
-        this.isLoggedIn = false;
-        this.userName = '点击登录/注册';
+        this.resetLoggedOutState();
         await apiService.clearToken(getContext(this));
       }
     } else {
-      this.isLoggedIn = false;
-      this.isPro = false;
-      this.userName = '点击登录/注册';
-      this.userStatus = '登录同步学习进度';
+      this.resetLoggedOutState();
     }
+  }
+
+  private resetLoggedOutState(): void {
+    this.isLoggedIn = false;
+    this.isPro = false;
+    this.userName = '点击登录/注册';
+    this.userAvatar = '';
+    this.userStatus = '注册后解锁学习与词典';
   }
 
   async initOneClickLogin(context: Context) {
@@ -330,6 +345,44 @@ export struct ProfileContent {
     }
   }
 
+  private async goMemberPage(): Promise<void> {
+    try {
+      await router.pushUrl({ url: 'pages/MemberPage' });
+    } catch (e) {
+      console.error('[ProfileContent] go member page failed:', JSON.stringify(e));
+    }
+  }
+
+  private onExternalSheetRequestChange(): void {
+    this.tryOpenExternalSheet();
+  }
+
+  private tryOpenExternalSheet(): void {
+    if (this.externalSheetMode !== 'login') {
+      return;
+    }
+    if (this.externalSheetRequestAt <= 0 || this.externalSheetRequestAt === this.lastHandledExternalSheetRequestAt) {
+      return;
+    }
+
+    this.lastHandledExternalSheetRequestAt = this.externalSheetRequestAt;
+    if (this.isLoggedIn) {
+      return;
+    }
+
+    this.openMainSheet('login');
+  }
+
+  private openMainSheet(mode: string): void {
+    if (this.isSheetAnimating) {
+      this.pendingSheetMode = mode;
+      return;
+    }
+
+    this.sheetMode = mode;
+    this.showMainSheet = true;
+  }
+
   build() {
     Stack() {
       Column() {
@@ -368,6 +421,7 @@ export struct ProfileContent {
       .onAppear(() => {
         // Tabs 切换返回时强制同步，避免登录态 UI 残留
         this.syncLoginStateFromToken();
+        this.tryOpenExternalSheet();
       })
       .bindSheet($$this.showMainSheet, this.MainSheetBuilder(), {
         height: SheetSize.FIT_CONTENT,
@@ -403,9 +457,6 @@ export struct ProfileContent {
         }
       })
 
-      if (this.showPaymentConfirmDialog) {
-        this.PaymentConfirmDialog()
-      }
     }
     .width('100%')
     .height('100%')
@@ -472,14 +523,10 @@ export struct ProfileContent {
     .border({ width: 1, color: 'rgba(0,0,0,0.04)' })
     .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
     .onClick(() => {
-      if (!this.isLoggedIn) {
-        if (this.isSheetAnimating) {
-          // 动画进行中，记录意图，等动画结束后打开
-          this.pendingSheetMode = 'login';
-        } else {
-          this.sheetMode = 'login';
-          this.showMainSheet = true;
-        }
+      if (this.isLoggedIn) {
+        void this.goMemberPage();
+      } else {
+        this.openMainSheet('login');
       }
     })
   }
@@ -493,7 +540,7 @@ export struct ProfileContent {
           Text('👑')
             .fontSize(16)
 
-          Text('升级 LingAI Pro')
+          Text('LingAI Pro 即将上线')
             .fontSize(15)
             .fontWeight(FontWeight.Bold)
             .fontColor('#ffffff')
@@ -502,7 +549,7 @@ export struct ProfileContent {
 
         Blank()
 
-        Button('查看')
+        Button('详情')
           .type(ButtonType.Capsule)
           .backgroundColor('rgba(255,255,255,0.25)')
           .fontColor('#ffffff')
@@ -511,13 +558,7 @@ export struct ProfileContent {
           .height(28)
           .padding({ left: 14, right: 14 })
           .onClick(() => {
-            if (this.isSheetAnimating) {
-              // 动画进行中，记录意图，等动画结束后打开
-              this.pendingSheetMode = 'vip';
-            } else {
-              this.sheetMode = 'vip';
-              this.showMainSheet = true;
-            }
+            this.openMainSheet('vip');
           })
       }
       .width('100%')
@@ -804,113 +845,19 @@ export struct ProfileContent {
     });
   }
 
-  showPaymentConfirmation() {
-    this.showPaymentConfirmDialog = true;
-  }
-
-  cancelPaymentConfirmation() {
-    this.showPaymentConfirmDialog = false;
-  }
-
-  confirmPaymentSubscription() {
-    this.showPaymentConfirmDialog = false;
-    this.isPro = true;
-    this.userStatus = 'LingAI Pro 会员';
-  }
-
-  @Builder
-  PaymentConfirmDialog() {
-    Column() {
-      Column() {
-        Column() {
-          Text('确认订阅')
-            .fontSize(22)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(themeManager.isDark() ? '#f8fafc' : '#111827')
-            .textAlign(TextAlign.Center)
-            .width('100%')
-
-          Text('确认支付 ¥128/年 订阅 LingAI Pro？')
-            .fontSize(16)
-            .lineHeight(24)
-            .fontColor(themeManager.isDark() ? '#94a3b8' : '#4b5563')
-            .textAlign(TextAlign.Center)
-            .width('100%')
-            .margin({ top: 14, bottom: 24 })
-        }
-        .width('100%')
-        .padding({ left: 24, right: 24, top: 24, bottom: 0 })
-
-        Divider()
-          .color(themeManager.isDark() ? 'rgba(148,163,184,0.24)' : 'rgba(15,23,42,0.10)')
-
-        Row() {
-          Button('取消')
-            .type(ButtonType.Normal)
-            .backgroundColor(Color.Transparent)
-            .fontColor(themeManager.isDark() ? '#94a3b8' : '#6b7280')
-            .fontSize(19)
-            .fontWeight(FontWeight.Medium)
-            .layoutWeight(1)
-            .height(56)
-            .borderRadius(0)
-            .onClick(() => {
-              this.cancelPaymentConfirmation();
-            })
-
-          Column()
-            .width(1)
-            .height(24)
-            .backgroundColor(themeManager.isDark() ? 'rgba(148,163,184,0.24)' : 'rgba(15,23,42,0.10)')
-
-          Button('确认支付')
-            .type(ButtonType.Normal)
-            .backgroundColor(Color.Transparent)
-            .fontColor('#6366f1')
-            .fontSize(19)
-            .fontWeight(FontWeight.Bold)
-            .layoutWeight(1)
-            .height(56)
-            .borderRadius(0)
-            .onClick(() => {
-              this.confirmPaymentSubscription();
-            })
-        }
-        .width('100%')
-      }
-      .width('86%')
-      .backgroundColor(themeManager.isDark() ? '#1f2937' : '#ffffff')
-      .borderRadius(22)
-      .border({ width: 1, color: themeManager.isDark() ? 'rgba(148,163,184,0.22)' : 'rgba(15,23,42,0.06)' })
-      .shadow({
-        radius: 24,
-        color: themeManager.isDark() ? 'rgba(0,0,0,0.50)' : 'rgba(15,23,42,0.16)',
-        offsetY: 6
-      })
-      .onClick(() => {})
-    }
-    .width('100%')
-    .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor('rgba(2,6,23,0.52)')
-    .onClick(() => {
-      this.cancelPaymentConfirmation();
-    })
-  }
-
   @Builder
   MainSheetBuilder() {
     Column() {
-      if (this.sheetMode === 'login' || this.sheetMode === 'login-upgrade') {
+      if (this.sheetMode === 'login') {
         // 登录模式内容
         Column() {
-          Text(this.sheetMode === 'login-upgrade' ? '登录后订阅' : '登录 / 注册')
+          Text('登录 / 注册')
             .fontSize(22)
             .fontWeight(FontWeight.Bold)
             .fontColor(themeManager.isDark() ? '#f8fafc' : '#1e293b')
             .margin({ top: 10 })
 
-          Text(this.sheetMode === 'login-upgrade' ? '登录以继续订阅 LingAI Pro' : '登录同步学习进度')
+          Text('登录后即可解锁学习、词典和基础会员权益')
             .fontSize(14)
             .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
             .margin({ top: 8, bottom: 24 })
@@ -955,19 +902,6 @@ export struct ProfileContent {
               })
           }
 
-          // 返回按钮（仅在login-upgrade模式显示）
-          if (this.sheetMode === 'login-upgrade') {
-            Button('← 返回')
-              .type(ButtonType.Normal)
-              .backgroundColor(Color.Transparent)
-              .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-              .fontSize(14)
-              .height(40)
-              .margin({ top: 12 })
-              .onClick(() => {
-                this.sheetMode = 'vip';
-              })
-          }
         }
         .width('100%')
         .padding({ left: 24, right: 24, top: 20, bottom: 50 })
@@ -987,60 +921,54 @@ export struct ProfileContent {
           .margin({ top: 10 })
 
           // 标语
-          Text('提升 3 倍学习效率')
+          Text('当前先开放基础会员，Pro 会员功能即将上线')
             .fontSize(16)
             .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
             .margin({ top: 20, bottom: 24 })
 
-          // 价格卡片
-          Stack({ alignContent: Alignment.TopEnd }) {
+          // 会员说明卡片
+          Column() {
             Column() {
-              // 价格
-              Row() {
-                Text('¥')
-                  .fontSize(18)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor('#6366f1')
-                  .margin({ right: 2 })
-                Text('128')
-                  .fontSize(42)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor('#6366f1')
-                Text(' / 年')
-                  .fontSize(14)
-                  .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
-                  .margin({ left: 4, bottom: 8 })
-              }
-              .alignItems(VerticalAlign.Bottom)
+              Text('当前已开放')
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(themeManager.isDark() ? '#cbd5e1' : '#475569')
+                .width('100%')
 
               // 功能列表
               Column({ space: 12 }) {
-                this.FeatureItem('无限体力')
-                this.FeatureItem('离线学习模式')
+                this.FeatureItem('注册后解锁学习与词典')
+                this.FeatureItem('同步基础账号身份')
+                this.FeatureItem('查看会员详情与后续升级说明')
               }
               .width('100%')
               .alignItems(HorizontalAlign.Start)
-              .margin({ top: 16 })
+              .margin({ top: 14 })
             }
             .width('100%')
             .padding(24)
             .borderRadius(20)
             .border({ width: 2, color: '#6366f1' })
 
-            // 推荐标签
-            Text('推荐')
+            Text('敬请期待')
               .fontSize(11)
               .fontWeight(FontWeight.Bold)
               .fontColor('#ffffff')
               .backgroundColor('#f59e0b')
               .borderRadius(8)
               .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-              .margin({ top: -1, right: 16 })
+              .position({ x: '78%', y: 12 })
           }
           .width('100%')
 
-          // 立即升级按钮
-          Button('立即升级 →')
+          Text('当前版本不开放价格展示、收费提醒与支付流程。')
+            .fontSize(13)
+            .lineHeight(20)
+            .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+            .textAlign(TextAlign.Center)
+            .margin({ top: 18 })
+
+          Button(this.isLoggedIn ? '我知道了' : '去登录 / 注册')
             .type(ButtonType.Capsule)
             .backgroundColor('#6366f1')
             .fontColor('#ffffff')
@@ -1052,14 +980,9 @@ export struct ProfileContent {
             .shadow({ radius: 15, color: 'rgba(99, 102, 241, 0.4)', offsetY: 4 })
             .onClick(() => {
               if (!this.isLoggedIn) {
-                // 未登录，切换到登录升级模式
-                this.sheetMode = 'login-upgrade';
+                this.sheetMode = 'login';
               } else {
-                // 已登录，关闭弹窗后弹出支付确认对话框
                 this.showMainSheet = false;
-                setTimeout(() => {
-                  this.showPaymentConfirmation();
-                }, 300);
               }
             })
         }

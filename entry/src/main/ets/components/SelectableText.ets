@@ -5,7 +5,7 @@
  */
 import pasteboard from '@ohos.pasteboard';
 import promptAction from '@ohos.promptAction';
-import ApiService from '../services/ApiService';
+import ApiService, { ApiError } from '../services/ApiService';
 
 // 操作回调接口
 export interface SelectableTextCallbacks {
@@ -99,7 +99,11 @@ export struct SelectableText {
       }
     } catch (error) {
       console.error('[SelectableText] Translate failed:', JSON.stringify(error));
-      this.translateResult = '翻译失败';
+      if (error instanceof ApiError) {
+        this.translateResult = error.message;
+      } else {
+        this.translateResult = '翻译失败';
+      }
     } finally {
       this.isTranslating = false;
     }

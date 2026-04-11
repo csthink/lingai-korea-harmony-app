@@ -26,6 +26,8 @@ struct Index {
   @State dictSearchWord: string = '';
   @State showSpiritPanel: boolean = false;
   @State isDarkMode: boolean = false;
+  @State profileSheetMode: string = '';
+  @State profileSheetRequestAt: number = 0;
 
   private tabController: TabsController = new TabsController();
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
@@ -80,11 +82,49 @@ struct Index {
         return;
       }
 
-      this.currentTabIndex = targetIndex;
-      this.tabController.changeIndex(targetIndex);
+      this.switchToTab(targetIndex);
+
+      const openSheetMode = this.readRouteString(params['openSheetMode']);
+      const navAt = this.readRouteNumber(params['navAt']);
+      if (targetIndex === 3 && openSheetMode === 'login' && navAt > 0 && this.profileSheetRequestAt !== navAt) {
+        this.profileSheetMode = 'login';
+        this.profileSheetRequestAt = navAt;
+      }
     } catch (e) {
       // Ignore invalid route params.
     }
+  }
+
+  private switchToTab(targetIndex: number): void {
+    this.currentTabIndex = targetIndex;
+
+    try {
+      this.tabController.changeIndex(targetIndex);
+    } catch (e) {
+      console.warn('[Index] changeIndex immediate failed:', JSON.stringify(e));
+    }
+
+    setTimeout(() => {
+      try {
+        this.tabController.changeIndex(targetIndex);
+      } catch (e) {
+        console.warn('[Index] changeIndex deferred failed:', JSON.stringify(e));
+      }
+    }, 30);
+  }
+
+  private readRouteNumber(value: Object | null | undefined): number {
+    if (value === undefined || value === null) {
+      return Number.NaN;
+    }
+    return Number(value);
+  }
+
+  private readRouteString(value: Object | null | undefined): string {
+    if (value === undefined || value === null) {
+      return '';
+    }
+    return String(value);
   }
 
   build() {
@@ -99,7 +139,7 @@ struct Index {
 
         // 学习 Tab
         TabContent() {
-          StudyContent()
+          StudyContent({ activeTabIndex: this.currentTabIndex })
         }
         .tabBar(this.TabBarItem('学习', $r('app.media.ic_study'), 1))
 
@@ -111,7 +151,11 @@ struct Index {
 
         // 我的 Tab
         TabContent() {
-          ProfileContent()
+          ProfileContent({
+            externalSheetMode: this.profileSheetMode,
+            externalSheetRequestAt: this.profileSheetRequestAt,
+            activeTabIndex: this.currentTabIndex
+          })
         }
         .tabBar(this.TabBarItem('我的', $r('app.media.ic_mine'), 3))
       }
@@ -184,7 +228,10 @@ struct Index {
 
   @Builder
   DictTabContent() {
-    DictContent({ searchWordFromExternal: this.dictSearchWord })
+    DictContent({
+      searchWordFromExternal: this.dictSearchWord,
+      activeTabIndex: this.currentTabIndex
+    })
   }
 
   @Builder

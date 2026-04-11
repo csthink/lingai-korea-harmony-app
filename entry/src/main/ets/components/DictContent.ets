@@ -4,11 +4,11 @@
  * 适配 ArkTS 严格模式
  */
 import { COLORS, API_BASE_URL, BIZ_API_PREFIX } from '../utils/Constants';
-import { WordEntry, DictAIResponse, DictSearchResponse, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample } from '../models/DataModels';
+import { WordEntry, DictAIResponse, DictSearchResponse, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample, UserInfo } from '../models/DataModels';
 import { WordCard } from './WordCard';
 import { PlayButton, PlayIcon } from './PlayButton';
 import { SelectableText, SelectableTextCallbacks } from './SelectableText';
-import ApiService from '../services/ApiService';
+import ApiService, { ApiError } from '../services/ApiService';
 import AudioService from '../services/AudioService';
 import { VocabularyService, VocabularyWord } from '../services/VocabularyService';
 import preferences from '@ohos.data.preferences';
@@ -17,6 +17,7 @@ import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { themeManager } from '../utils/ThemeManager';
+import { AuthRequiredState } from './AuthRequiredState';
 
 // 最近添加单词的数据类
 class RecentWordItem {
@@ -31,10 +32,19 @@ class RecentWordItem {
   }
 }
 
+class DictQueryCacheEntry {
+  resultSource: string = '';
+  resultDirection: string = '';
+  results: WordEntry[] = [];
+  aiSupplement: DictAIResponse | null = null;
+  cachedAt: number = 0;
+}
+
 @Component
 export struct DictContent {
   // 外部传入的搜索词（从其他Tab跳转过来，或嵌入模式下初始词）
   @Prop @Watch('onExternalSearchChange') searchWordFromExternal: string = '';
+  @Prop @Watch('onActiveTabIndexChange') activeTabIndex: number = -1;
   // 嵌入模式：隐藏标题，适配底部弹窗
   @Prop embedMode: boolean = false;
   
@@ -75,14 +85,27 @@ export struct DictContent {
   @State recentWords: RecentWordItem[] = [];  // 最近添加
   @State recentWordsLimit: number = 3;         // 最近添加显示数量
   @State themeVersion: number = 0;
+  @State authChecked: boolean = false;
+  @State requiresLogin: boolean = false;
+  @State userInfo: UserInfo = new UserInfo();
   
   // 外部搜索词变化时触发搜索
   onExternalSearchChange() {
+    if (this.requiresLogin) {
+      return;
+    }
     if (this.searchWordFromExternal && this.searchWordFromExternal.length > 0) {
       console.info(`[DictContent] External search triggered: ${this.searchWordFromExternal}`);
       this.searchText = this.searchWordFromExternal;
       this.performStreamingSearch();
     }
+  }
+
+  onActiveTabIndexChange(): void {
+    if (this.activeTabIndex !== 2 || this.embedMode) {
+      return;
+    }
+    void this.refreshForVisibleTab();
   }
 
   private apiService: ApiService = ApiService.getInstance();
@@ -92,6 +115,7 @@ export struct DictContent {
   private static readonly HISTORY_KEY: string = 'dict_search_history';
   private static readonly MAX_HISTORY: number = 10;
   private unsubscribeTheme: (() => void) | null = null;
+  private searchResultCache: Map<string, DictQueryCacheEntry> = new Map();
   // SSE 并发保护 & 状态追踪
   private activeHttpRequest: http.HttpRequest | null = null;
   private sseBuffer: string = '';
@@ -107,6 +131,11 @@ export struct DictContent {
 
     // 设置音频缓存目录
     const context = getContext(this);
+    await this.refreshAccessState(context);
+    if (this.requiresLogin) {
+      return;
+    }
+    await this.loadUserInfo(context);
     const cacheDir = context.tempDir;
     this.audioService.setCacheDir(cacheDir);
     console.info(`DictContent: Set audio cache dir to ${cacheDir}`);
@@ -128,11 +157,62 @@ export struct DictContent {
     }
   }
 
+  private async refreshForVisibleTab(): Promise<void> {
+    const context = getContext(this);
+    await this.refreshAccessState(context);
+    if (this.requiresLogin) {
+      return;
+    }
+    await this.prepareAuthorizedContent(context);
+  }
+
   aboutToDisappear() {
     if (this.unsubscribeTheme !== null) {
       this.unsubscribeTheme();
       this.unsubscribeTheme = null;
     }
+  }
+
+  private async refreshAccessState(context: Context): Promise<void> {
+    await this.apiService.init(context);
+    this.requiresLogin = this.apiService.getToken().length === 0;
+    if (this.requiresLogin) {
+      this.userInfo = new UserInfo();
+    }
+    this.authChecked = true;
+  }
+
+  private async loadUserInfo(context: Context): Promise<void> {
+    try {
+      await this.apiService.init(context);
+      if (!this.apiService.getToken()) {
+        this.userInfo = new UserInfo();
+        return;
+      }
+      this.userInfo = await this.apiService.getCurrentUserInfo();
+    } catch (_error) {
+      console.warn('[DictContent] loadUserInfo failed, using default quota');
+      this.requiresLogin = this.apiService.getToken().length === 0;
+      this.userInfo = new UserInfo();
+    }
+  }
+
+  private async prepareAuthorizedContent(context: Context): Promise<void> {
+    await this.loadUserInfo(context);
+    if (this.requiresLogin) {
+      return;
+    }
+    this.audioService.setCacheDir(context.tempDir);
+    await this.vocabularyService.init(context);
+    this.loadSearchHistory();
+    this.loadFavoriteData();
+  }
+
+  private async refreshQuotaInfo(): Promise<void> {
+    if (this.requiresLogin) {
+      return;
+    }
+    await this.loadUserInfo(getContext(this));
   }
 
   // 加载收藏数据
@@ -301,10 +381,15 @@ export struct DictContent {
       }
     } catch (error) {
       console.error('[DictContent] Translate error:', JSON.stringify(error));
-      this.translateResult = '翻译失败';
+      if (error instanceof ApiError) {
+        this.translateResult = error.message;
+      } else {
+        this.translateResult = '翻译失败';
+      }
       this.translateSource = 'error';
     } finally {
       this.isTranslating = false;
+      void this.refreshQuotaInfo();
     }
   }
 
@@ -345,6 +430,11 @@ export struct DictContent {
           promptAction.showToast({ message: `已加入生词本: ${text}`, duration: 2000 });
         } catch (error) {
           console.error('[DictContent] Add to vocabulary failed:', JSON.stringify(error));
+          if (error instanceof ApiError) {
+            promptAction.showToast({ message: error.message, duration: 2500 });
+          }
+        } finally {
+          void this.refreshQuotaInfo();
         }
       },
       onViewDetail: (text: string) => {
@@ -390,8 +480,15 @@ export struct DictContent {
 
   // 执行搜索但不添加到浏览历史
   async performSearchWithoutHistory() {
+    if (this.requiresLogin) {
+      return;
+    }
     const query = this.searchText.trim();
     if (query.length === 0) {
+      return;
+    }
+
+    if (this.tryApplyCachedResult(query, false, false)) {
       return;
     }
     
@@ -408,6 +505,7 @@ export struct DictContent {
         this.aiSupplement = response.aiSupplement;
         this.resultSource = response.source;
         this.resultDirection = response.direction;
+        this.saveSearchResultCache(query, response.results, response.aiSupplement, response.source, response.direction);
 
         if (this.searchResults.length > 0) {
           const firstWord = this.searchResults[0];
@@ -415,18 +513,32 @@ export struct DictContent {
         }
       }
     } catch (error) {
+      if (error instanceof ApiError && (error.code === 2001 || error.code === 2006)) {
+        this.requiresLogin = true;
+      }
+      if (error instanceof ApiError) {
+        promptAction.showToast({ message: error.message, duration: 2500 });
+      }
       console.error('Search failed:', JSON.stringify(error));
     } finally {
       this.isLoading = false;
+      void this.refreshQuotaInfo();
     }
   }
 
   async performSearch() {
+    if (this.requiresLogin) {
+      return;
+    }
     const query = this.searchText.trim();
     if (query.length === 0) {
       this.searchResults = [];
       this.aiSupplement = null;
       this.hasSearched = false;
+      return;
+    }
+
+    if (this.tryApplyCachedResult(query, true, true)) {
       return;
     }
 
@@ -441,6 +553,7 @@ export struct DictContent {
         this.aiSupplement = response.aiSupplement;
         this.resultSource = response.source;
         this.resultDirection = response.direction;
+        this.saveSearchResultCache(query, response.results, response.aiSupplement, response.source, response.direction);
         
         // 搜索成功后添加到历史
         this.addToHistory(query);
@@ -461,11 +574,18 @@ export struct DictContent {
         this.resultSource = '';
       }
     } catch (error) {
+      if (error instanceof ApiError && (error.code === 2001 || error.code === 2006)) {
+        this.requiresLogin = true;
+      }
+      if (error instanceof ApiError) {
+        promptAction.showToast({ message: error.message, duration: 2500 });
+      }
       console.error('Search failed:', JSON.stringify(error));
       this.searchResults = [];
       this.aiSupplement = null;
     } finally {
       this.isLoading = false;
+      void this.refreshQuotaInfo();
     }
   }
 
@@ -475,11 +595,18 @@ export struct DictContent {
    * 缓存未命中时流式显示LLM生成过程
    */
   async performStreamingSearch(): Promise<void> {
+    if (this.requiresLogin) {
+      return;
+    }
     const query = this.searchText.trim();
     if (query.length === 0) {
       this.searchResults = [];
       this.aiSupplement = null;
       this.hasSearched = false;
+      return;
+    }
+
+    if (this.tryApplyCachedResult(query, true, true)) {
       return;
     }
 
@@ -829,6 +956,16 @@ export struct DictContent {
       this.aiSupplement = ai;
       this.streamingText = '';  // 清除流式文本，显示正式结果
     }
+
+    this.saveSearchResultCache(
+      this.searchText.trim(),
+      this.searchResults,
+      this.aiSupplement,
+      this.resultSource,
+      this.resultDirection
+    );
+
+    void this.refreshQuotaInfo();
   }
 
   onSearchTextChange(value: string) {
@@ -874,9 +1011,229 @@ export struct DictContent {
     this.selectedWord = null;
   }
 
+  private normalizeQuery(query: string): string {
+    return query.trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  private cloneExampleSentence(item: ExampleSentence): ExampleSentence {
+    return new ExampleSentence(item.ko, item.zh);
+  }
+
+  private cloneSense(item: Sense): Sense {
+    const examples: ExampleSentence[] = [];
+    for (let i = 0; i < item.examples.length; i++) {
+      examples.push(this.cloneExampleSentence(item.examples[i]));
+    }
+    return new Sense(item.meaning, examples);
+  }
+
+  private cloneWordEntry(item: WordEntry): WordEntry {
+    const entry = new WordEntry();
+    entry.id = item.id;
+    entry.hangul = item.hangul;
+    entry.romanization = item.romanization;
+    entry.pos = item.pos;
+    entry.primaryMeaning = item.primaryMeaning;
+    entry.topikLevel = item.topikLevel;
+    entry.freqRank = item.freqRank;
+    entry.lessonId = item.lessonId;
+    entry.collocations = item.collocations.slice();
+
+    const examples: ExampleSentence[] = [];
+    for (let i = 0; i < item.examples.length; i++) {
+      examples.push(this.cloneExampleSentence(item.examples[i]));
+    }
+    entry.examples = examples;
+
+    const senses: Sense[] = [];
+    for (let i = 0; i < item.senses.length; i++) {
+      senses.push(this.cloneSense(item.senses[i]));
+    }
+    entry.senses = senses;
+    return entry;
+  }
+
+  private cloneWordEntries(items: WordEntry[]): WordEntry[] {
+    const entries: WordEntry[] = [];
+    for (let i = 0; i < items.length; i++) {
+      entries.push(this.cloneWordEntry(items[i]));
+    }
+    return entries;
+  }
+
+  private cloneMeaningDetail(item: MeaningDetail): MeaningDetail {
+    return new MeaningDetail(item.type, item.explanation);
+  }
+
+  private cloneCollocation(item: Collocation): Collocation {
+    const collocation = new Collocation();
+    collocation.phrase = item.phrase;
+    collocation.meaning = item.meaning;
+    collocation.exampleKo = item.exampleKo;
+    collocation.exampleZh = item.exampleZh;
+    return collocation;
+  }
+
+  private cloneSynonymWord(item: SynonymWord): SynonymWord {
+    const synonym = new SynonymWord();
+    synonym.word = item.word;
+    synonym.meaning = item.meaning;
+    synonym.difference = item.difference;
+    return synonym;
+  }
+
+  private cloneRelatedWord(item: RelatedWord): RelatedWord {
+    const related = new RelatedWord();
+    related.word = item.word;
+    related.meaning = item.meaning;
+    return related;
+  }
+
+  private cloneCategoryExample(item: CategoryExample): CategoryExample {
+    const example = new CategoryExample();
+    example.ko = item.ko;
+    example.zh = item.zh;
+    example.category = item.category;
+    return example;
+  }
+
+  private cloneAiSupplement(aiSupplement: DictAIResponse | null): DictAIResponse | null {
+    if (aiSupplement === null) {
+      return null;
+    }
+
+    const ai = new DictAIResponse();
+    ai.aiMeaning = aiSupplement.aiMeaning;
+    ai.wordType = aiSupplement.wordType;
+    ai.hanja = aiSupplement.hanja;
+    ai.composition = aiSupplement.composition;
+    ai.tips = aiSupplement.tips;
+
+    const meanings: MeaningDetail[] = [];
+    for (let i = 0; i < aiSupplement.meanings.length; i++) {
+      meanings.push(this.cloneMeaningDetail(aiSupplement.meanings[i]));
+    }
+    ai.meanings = meanings;
+
+    const collocations: Collocation[] = [];
+    for (let i = 0; i < aiSupplement.collocations.length; i++) {
+      collocations.push(this.cloneCollocation(aiSupplement.collocations[i]));
+    }
+    ai.collocations = collocations;
+
+    const aiExamples: CategoryExample[] = [];
+    for (let i = 0; i < aiSupplement.aiExamples.length; i++) {
+      aiExamples.push(this.cloneCategoryExample(aiSupplement.aiExamples[i]));
+    }
+    ai.aiExamples = aiExamples;
+
+    const synonyms: SynonymWord[] = [];
+    for (let i = 0; i < aiSupplement.synonyms.length; i++) {
+      synonyms.push(this.cloneSynonymWord(aiSupplement.synonyms[i]));
+    }
+    ai.synonyms = synonyms;
+
+    const antonyms: RelatedWord[] = [];
+    for (let i = 0; i < aiSupplement.antonyms.length; i++) {
+      antonyms.push(this.cloneRelatedWord(aiSupplement.antonyms[i]));
+    }
+    ai.antonyms = antonyms;
+
+    const relatedWords: RelatedWord[] = [];
+    for (let i = 0; i < aiSupplement.relatedWords.length; i++) {
+      relatedWords.push(this.cloneRelatedWord(aiSupplement.relatedWords[i]));
+    }
+    ai.relatedWords = relatedWords;
+
+    return ai;
+  }
+
+  private saveSearchResultCache(
+    query: string,
+    results: WordEntry[],
+    aiSupplement: DictAIResponse | null,
+    resultSource: string,
+    resultDirection: string
+  ): void {
+    const normalizedQuery = this.normalizeQuery(query);
+    if (normalizedQuery.length === 0) {
+      return;
+    }
+
+    const cacheEntry = new DictQueryCacheEntry();
+    cacheEntry.resultSource = resultSource;
+    cacheEntry.resultDirection = resultDirection;
+    cacheEntry.results = this.cloneWordEntries(results);
+    cacheEntry.aiSupplement = this.cloneAiSupplement(aiSupplement);
+    cacheEntry.cachedAt = Date.now();
+    this.searchResultCache.set(normalizedQuery, cacheEntry);
+  }
+
+  private tryApplyCachedResult(query: string, updateHistory: boolean, updateBrowseHistory: boolean): boolean {
+    const normalizedQuery = this.normalizeQuery(query);
+    if (normalizedQuery.length === 0) {
+      return false;
+    }
+
+    const cacheEntry = this.searchResultCache.get(normalizedQuery);
+    if (cacheEntry === undefined) {
+      return false;
+    }
+
+    this.isLoading = false;
+    this.isStreaming = false;
+    this.hasSearched = true;
+    this.showHistory = false;
+    this.resultSource = cacheEntry.resultSource;
+    this.resultDirection = cacheEntry.resultDirection;
+    this.searchResults = this.cloneWordEntries(cacheEntry.results);
+    this.aiSupplement = this.cloneAiSupplement(cacheEntry.aiSupplement);
+    this.streamingText = '';
+    this.streamingMeaning = '';
+    this.streamingWordType = '';
+    this.streamingTips = '';
+
+    if (updateHistory) {
+      this.addToHistory(query);
+    }
+    if (updateBrowseHistory) {
+      this.addToBrowseHistory(query);
+    }
+
+    if (this.searchResults.length > 0) {
+      this.isInVocabulary = this.vocabularyService.hasWord(this.searchResults[0].hangul);
+    } else {
+      this.isInVocabulary = this.vocabularyService.hasWord(query.trim());
+    }
+    return true;
+  }
+
   build() {
-    // 收藏列表页面
-    if (this.showFavoritesPage) {
+    if (!this.authChecked) {
+      Column() {
+        LoadingProgress()
+          .width(42)
+          .height(42)
+          .color(COLORS.PRIMARY)
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.Center)
+      .backgroundColor(COLORS.BACKGROUND)
+      .onAppear(() => {
+        void this.refreshAccessState(getContext(this));
+      })
+    } else if (this.requiresLogin) {
+      AuthRequiredState({
+        title: '注册后解锁词典查询',
+        description: '试运行阶段需要先登录 / 注册，才能使用词典搜索、收藏与最近添加。',
+        source: 'dict_tab_gate',
+      })
+        .onAppear(() => {
+          void this.refreshAccessState(getContext(this));
+        })
+    } else if (this.showFavoritesPage) {
+      // 收藏列表页面
       this.FavoritesListPage()
     } else {
       // 主内容
@@ -960,6 +1317,8 @@ export struct DictContent {
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 42, bottom: 8 })
+
+      this.DictQuotaBanner()
 
       // 搜索历史下拉列表
       if (this.showHistory && this.searchHistory.length > 0) {
@@ -1228,7 +1587,12 @@ export struct DictContent {
     .width('100%')
     .height('100%')
     .backgroundColor(COLORS.BACKGROUND)
-    }  // 结束else块
+    .onAppear(() => {
+      const context = getContext(this);
+      void this.refreshAccessState(context);
+      void this.loadUserInfo(context);
+    })
+    }
   }
 
   // ===== 新增Builder方法 =====
@@ -1283,6 +1647,44 @@ export struct DictContent {
     .onClick(() => {
       this.showFavoritesPage = true;
     })
+  }
+
+  @Builder
+  DictQuotaBanner() {
+    Row() {
+      Column() {
+        Text('今日免费查词额度')
+          .fontSize(12)
+          .fontColor(COLORS.TEXT_SECONDARY)
+
+        Text(this.dictQuotaSummary())
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(COLORS.TEXT_PRIMARY)
+          .margin({ top: 4 })
+
+        Text(this.dictQuotaCaption())
+          .fontSize(11)
+          .fontColor(COLORS.TEXT_HINT)
+          .margin({ top: 6 })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Text(this.dictQuotaBadge())
+        .fontSize(12)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.dictQuotaBadgeTextColor())
+        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+        .backgroundColor(this.dictQuotaBadgeBackground())
+        .borderRadius(999)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .margin({ left: 16, right: 16, bottom: 8 })
+    .backgroundColor(COLORS.SURFACE)
+    .borderRadius(18)
+    .border({ width: 1, color: 'rgba(99, 102, 241, 0.08)' })
   }
 
   @Builder
@@ -1365,6 +1767,50 @@ export struct DictContent {
     .width('100%')
     .alignItems(HorizontalAlign.Start)  // 内容左对齐
     .margin({ top: 20 })
+  }
+
+  private dictQuotaSummary(): string {
+    if (this.userInfo.dailyDictLimit <= 0) {
+      return '当前会员今日查词不限量';
+    }
+    if (this.userInfo.dailyDictRemaining <= 0) {
+      return `今天的 ${this.userInfo.dailyDictLimit} 次查词额度已用完`;
+    }
+    return `今天还可免费查询 ${this.userInfo.dailyDictRemaining}/${this.userInfo.dailyDictLimit} 个词`;
+  }
+
+  private dictQuotaCaption(): string {
+    if (this.userInfo.dailyDictLimit <= 0) {
+      return '搜索、流式词典和快速翻译都会按统一会员规则放行。';
+    }
+    if (this.userInfo.dailyDictRemaining <= 0) {
+      return '明天会自动恢复额度，同一词当天重复查看不重复扣减。';
+    }
+    return '搜索、流式词典和快速翻译共用额度，同一词当天重复查看不重复扣减。';
+  }
+
+  private dictQuotaBadge(): string {
+    if (this.userInfo.dailyDictLimit <= 0) {
+      return '不限量';
+    }
+    if (this.userInfo.dailyDictRemaining <= 0) {
+      return '已用完';
+    }
+    return `剩 ${this.userInfo.dailyDictRemaining} 词`;
+  }
+
+  private dictQuotaBadgeTextColor(): string {
+    if (this.userInfo.dailyDictLimit > 0 && this.userInfo.dailyDictRemaining <= 0) {
+      return '#b91c1c';
+    }
+    return COLORS.PRIMARY;
+  }
+
+  private dictQuotaBadgeBackground(): string {
+    if (this.userInfo.dailyDictLimit > 0 && this.userInfo.dailyDictRemaining <= 0) {
+      return 'rgba(239, 68, 68, 0.12)';
+    }
+    return 'rgba(99, 102, 241, 0.12)';
   }
 
   @Builder

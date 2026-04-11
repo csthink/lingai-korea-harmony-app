@@ -84,6 +84,7 @@ class ApiError extends Error {
 
   constructor(message: string, code: number = 0, traceId: string = '') {
     super(message);
+    this.name = 'ApiError';
     this.code = code;
     this.traceId = traceId;
   }
@@ -295,7 +296,8 @@ class ApiService {
   private unwrapResult(jsonStr: string): Object {
     const result = JSON.parse(jsonStr) as UnifiedResult;
     if (result.code !== 0) {
-      throw new ApiError(result.message || `Biz error (code=${result.code})`, result.code, result.traceId);
+      const message = this.normalizeTransportMessage(result.message || `Biz error (code=${result.code})`, result.code);
+      throw new ApiError(message, result.code, result.traceId);
     }
     return result.data as Object;
   }
@@ -308,7 +310,7 @@ class ApiService {
     try {
       if (rawBody && rawBody.trim().length > 0) {
         const parsed = JSON.parse(rawBody) as UnifiedResult;
-        const message = parsed.message || `HTTP ${responseCode}`;
+        const message = this.normalizeTransportMessage(parsed.message || `HTTP ${responseCode}`, parsed.code || responseCode);
         const code = parsed.code || responseCode;
         const traceId = parsed.traceId || '';
         return new ApiError(message, code, traceId);
@@ -316,7 +318,60 @@ class ApiService {
     } catch (e) {
       // 非 JSON 错误体时退回默认 HTTP 错误
     }
-    return new ApiError(`HTTP ${responseCode}`, responseCode);
+    return new ApiError(this.normalizeTransportMessage(`HTTP ${responseCode}`, responseCode), responseCode);
+  }
+
+  private buildRequestFailureError(error: Object): ApiError {
+    const message = this.normalizeTransportMessage(this.extractErrorMessage(error), 0);
+    return new ApiError(message);
+  }
+
+  private extractErrorMessage(error: Object): string {
+    if (error instanceof Error) {
+      return error.message || '';
+    }
+    const errorRecord = error as Record<string, Object>;
+    const message = errorRecord['message'] as string;
+    if (message && message.length > 0) {
+      return message;
+    }
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== '{}' && serialized !== '""') {
+      return serialized;
+    }
+    return '';
+  }
+
+  private normalizeTransportMessage(rawMessage: string, code: number = 0): string {
+    const message = rawMessage.trim();
+    const lowerMessage = message.toLowerCase();
+
+    if (code === 401 || code === 403) {
+      return '登录状态已失效，请重新登录';
+    }
+
+    const serviceUnavailable = code >= 500
+      || lowerMessage.startsWith('http 5')
+      || lowerMessage.includes('request failed:')
+      || lowerMessage.includes('service unavailable')
+      || lowerMessage.includes('internal server error')
+      || lowerMessage.includes('bad gateway')
+      || lowerMessage.includes('gateway timeout')
+      || lowerMessage.includes('connection refused')
+      || lowerMessage.includes('connection reset')
+      || lowerMessage.includes('network is unreachable')
+      || lowerMessage.includes('timeout')
+      || lowerMessage.includes('timed out')
+      || lowerMessage.includes('socket hang up');
+
+    if (serviceUnavailable) {
+      return '当前服务暂时不可用，请稍后重试';
+    }
+
+    if (message.length === 0) {
+      return '请求未完成，请稍后重试';
+    }
+    return message;
   }
 
   /**
@@ -381,6 +436,26 @@ class ApiService {
     return error.code === 401 || error.code === 2001 || error.code === 2002;
   }
 
+  private shouldClearSession(error: ApiError): boolean {
+    return error.code === 401
+      || error.code === 403
+      || error.code === 2001
+      || error.code === 2002
+      || error.code === 2005
+      || error.code === 2006;
+  }
+
+  private async clearSessionIfNeeded(error: ApiError): Promise<void> {
+    if (!this.shouldClearSession(error)) {
+      return;
+    }
+    if (!this.token && !this.refreshToken) {
+      return;
+    }
+    console.warn(`[ApiService] Session invalidated: code=${error.code}, msg=${error.message}`);
+    await this.clearToken();
+  }
+
   /**
    * 刷新 AccessToken（防并发：多个请求同时触发只执行一次）
    */
@@ -438,12 +513,23 @@ class ApiService {
       if (e instanceof ApiError) {
         if (this.isTokenExpiredError(e) && this.refreshToken) {
           console.info('[ApiService] Token expired, attempting refresh and retry...');
-          await this.refreshAccessToken();
-          return await fn();
+          try {
+            await this.refreshAccessToken();
+            return await fn();
+          } catch (refreshError) {
+            if (refreshError instanceof ApiError) {
+              await this.clearSessionIfNeeded(refreshError);
+              throw refreshError;
+            }
+            const normalizedRefreshError = this.buildRequestFailureError(refreshError as Object);
+            await this.clearSessionIfNeeded(normalizedRefreshError);
+            throw normalizedRefreshError;
+          }
         }
+        await this.clearSessionIfNeeded(e);
         throw e;
       }
-      throw new ApiError(`Unexpected error: ${JSON.stringify(e)}`);
+      throw this.buildRequestFailureError(e as Object);
     }
   }
 
@@ -472,7 +558,8 @@ class ApiService {
           const data = this.unwrapResult(rawBody);
           return JSON.stringify(data);
         } else {
-          throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+          const rawBody = typeof response.result === 'string' ? response.result as string : '';
+          throw this.buildHttpError(response.responseCode, rawBody);
         }
       } catch (error) {
         if (error instanceof ApiError) {
@@ -480,7 +567,7 @@ class ApiService {
           throw error;
         }
         console.error(`[ApiService] GET ${path} failed:`, JSON.stringify(error));
-        throw new ApiError(`Request failed: ${path}`);
+        throw this.buildRequestFailureError(error as Object);
       } finally {
         client.destroy();
       }
@@ -490,11 +577,12 @@ class ApiService {
   /**
    * 发送 POST 请求（自动签名 + 鉴权 + 解包 + Token 过期自动刷新重试）
    */
-  private async post(path: string, data: string): Promise<string> {
+  private async post(path: string, data: string, requestClient?: http.HttpRequest): Promise<string> {
     return this.withAuthRetry(async () => {
       const url = this.buildUrl(path);
       const headers = await this.buildSignedHeaders(data, true);
-      const client = http.createHttp();
+      const client = requestClient ?? http.createHttp();
+      const shouldDestroyClient = requestClient === undefined;
 
       try {
         const response = await client.request(url, {
@@ -510,7 +598,8 @@ class ApiService {
           const unwrapped = this.unwrapResult(rawBody);
           return JSON.stringify(unwrapped);
         } else {
-          throw new ApiError(`HTTP ${response.responseCode}`, response.responseCode);
+          const rawBody = typeof response.result === 'string' ? response.result as string : '';
+          throw this.buildHttpError(response.responseCode, rawBody);
         }
       } catch (error) {
         if (error instanceof ApiError) {
@@ -518,9 +607,11 @@ class ApiService {
           throw error;
         }
         console.error(`[ApiService] POST ${path} failed:`, JSON.stringify(error));
-        throw new ApiError(`Request failed: ${path}`);
+        throw this.buildRequestFailureError(error as Object);
       } finally {
-        client.destroy();
+        if (shouldDestroyClient) {
+          client.destroy();
+        }
       }
     });
   }
@@ -755,8 +846,20 @@ class ApiService {
           userInfo.id = data['id'] as number || 0;
           userInfo.phone = data['phone'] as string || '';
           userInfo.nickname = data['nickname'] as string || '';
-          userInfo.avatar = data['avatar'] as string || '';
-          userInfo.vipStatus = data['vipStatus'] as string || 'NORMAL';
+          userInfo.avatar = data['avatarUrl'] as string || data['avatar'] as string || '';
+          userInfo.memberLevel = data['memberLevel'] as string || 'BASIC';
+          userInfo.memberLevelLabel = data['memberLevelLabel'] as string || '基础会员';
+          userInfo.proEnabled = data['proEnabled'] as boolean || false;
+          userInfo.dailyLessonLimit = data['dailyLessonLimit'] as number || 2;
+          userInfo.dailyLessonUsed = data['dailyLessonUsed'] as number || 0;
+          userInfo.dailyLessonRemaining = data['dailyLessonRemaining'] as number || 0;
+          userInfo.dailyDictLimit = data['dailyDictLimit'] as number || 50;
+          userInfo.dailyDictUsed = data['dailyDictUsed'] as number || 0;
+          userInfo.dailyDictRemaining = data['dailyDictRemaining'] as number || 0;
+          userInfo.dailyAiLimit = data['dailyAiLimit'] as number || 10;
+          userInfo.dailyAiUsed = data['dailyAiUsed'] as number || 0;
+          userInfo.dailyAiRemaining = data['dailyAiRemaining'] as number || 0;
+          userInfo.vipStatus = userInfo.memberLevel === 'PRO' ? 'PRO' : 'NORMAL';
           
           return userInfo;
         } else {
@@ -1021,8 +1124,11 @@ class ApiService {
       const result = await this.get('/api/content/levels');
       return JSON.parse(result) as LevelInfo;
     } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
       console.error('[ApiService] Get level info failed');
-      throw new ApiError('Get level info failed');
+      throw new ApiError('当前服务暂时不可用，请稍后重试');
     }
   }
 
@@ -1033,8 +1139,11 @@ class ApiService {
     try {
       return await this.get(`/api/content/lesson/${lessonId}`);
     } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
       console.error(`[ApiService] Get lesson ${lessonId} content failed`);
-      throw new ApiError(`Get lesson ${lessonId} content failed`);
+      throw new ApiError('当前服务暂时不可用，请稍后重试');
     }
   }
 
@@ -1046,8 +1155,11 @@ class ApiService {
       const result = await this.get(`/api/content/lesson/${lessonId}/quiz-config`);
       return JSON.parse(result) as QuizConfigResponse;
     } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
       console.error('[ApiService] Get quiz config failed');
-      throw new ApiError('Get quiz config failed');
+      throw new ApiError('当前服务暂时不可用，请稍后重试');
     }
   }
 
@@ -1059,8 +1171,11 @@ class ApiService {
       const result = await this.get(`/api/content/words/topik/${level}`);
       return JSON.parse(result) as LessonWordsResponse;
     } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
       console.error(`[ApiService] Get TOPIK ${level} words failed`);
-      throw new ApiError(`Get TOPIK ${level} words failed`);
+      throw new ApiError('当前服务暂时不可用，请稍后重试');
     }
   }
 
@@ -1111,6 +1226,9 @@ class ApiService {
         source: parsed['source'] as string || 'unknown'
       };
     } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
       console.error('[ApiService] Quick translate failed:', JSON.stringify(error));
       return null;
     }
@@ -1121,16 +1239,19 @@ class ApiService {
   /**
    * AI 精灵对话
    */
-  async spiritChat(messages: SpiritChatMessageItem[]): Promise<string | null> {
+  async spiritChat(messages: SpiritChatMessageItem[], requestClient?: http.HttpRequest): Promise<string | null> {
     try {
       const body = JSON.stringify({ messages: messages });
-      const result = await this.post('/api/spirit/chat', body);
+      const result = await this.post('/api/spirit/chat', body, requestClient);
       const parsed = JSON.parse(result) as SpiritChatResponseData;
       if (parsed.success) {
         return parsed.reply;
       }
       return parsed.reply || null;
     } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
       console.error('[ApiService] Spirit chat failed:', JSON.stringify(error));
       return null;
     }

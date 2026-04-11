@@ -23,8 +23,8 @@
           "keyAlias": "debugKey",
           "keyPassword": "***REMOVED***",
           "signAlg": "SHA256withECDSA",
-          "profile": "/Users/mars/Downloads/agc/lingai-release-profile-20260315Release.p7b",
-          "certpath": "/Users/mars/Downloads/agc/lingai-release-20260315.cer"
+          "profile": "/Users/mars/.ohos/config/release_lingai-korea-harmony-app_XYYlA8tmtvuScBFvCOrPD_UY6AS0N3I96zvjd0UmI6c=.p7b",
+          "certpath": "/Users/mars/.ohos/config/release_lingai-korea-harmony-app_XYYlA8tmtvuScBFvCOrPD_UY6AS0N3I96zvjd0UmI6c=.cer"
         }
       }
     ],

@@ -48,7 +48,9 @@ struct LessonPage {
   @State words: WordEntry[] = [];
   @State currentWordIndex: number = 0;
   @State loadingError: string = '';
+  @State loadingErrorHint: string = '';
   @State loadingNeedLogin: boolean = false;
+  @State loadingQuotaBlocked: boolean = false;
   @State navigatingToLogin: boolean = false;
 
   // 预习相关
@@ -142,7 +144,9 @@ struct LessonPage {
   async loadLessonData() {
     this.phase = LearningPhase.LOADING;
     this.loadingError = '';
+    this.loadingErrorHint = '';
     this.loadingNeedLogin = false;
+    this.loadingQuotaBlocked = false;
     
     // 读取用户设置的每关单词数
     try {
@@ -157,7 +161,7 @@ struct LessonPage {
       const api = ApiService.getInstance();
       if (!api.getToken()) {
         this.loadingNeedLogin = true;
-        this.loadingError = '登录状态已失效或未登录，请先登录后再开始学习';
+        this.setLoadingErrorState('登录状态已失效或未登录', '登录后即可继续学习当前关卡');
         return;
       }
       const response = await api.getLessonWords(this.lessonInfo.level, this.lessonInfo.lessonId, this.wordsPerLesson);
@@ -197,19 +201,73 @@ struct LessonPage {
         this.phase = LearningPhase.PREVIEW;
         console.info(`Loaded ${this.words.length} words from API`);
       } else {
-        this.loadingError = '当前关卡暂无词表数据';
+        this.setLoadingErrorState('当前关卡暂无词表数据', '这关内容还在整理中，可以先学习其他关卡');
         // 保持 LOADING 状态，不进入学习流程
       }
     } catch (error) {
       console.error('Failed to load lesson data:', JSON.stringify(error));
       if (error instanceof ApiError && (error.code === 401 || error.code === 2001 || error.code === 2002)) {
         this.loadingNeedLogin = true;
-        this.loadingError = '登录状态已失效，请重新登录后继续学习';
+        this.setLoadingErrorState('登录状态已失效，请重新登录', '登录后即可继续学习当前关卡');
         return;
       }
-      this.loadingError = '加载失败，请稍后重试';
+      if (error instanceof ApiError) {
+        if (error.code === 4006) {
+          this.loadingQuotaBlocked = true;
+          this.setLoadingErrorState(error.message, '基础会员今日学习额度已用完，明天会自动恢复');
+          return;
+        }
+        this.setLoadingErrorState(error.message, this.resolveLoadingErrorHint(error.message));
+        return;
+      }
+      this.setLoadingErrorState('当前服务暂时不可用，请稍后重试', '可能正在短暂维护或网络波动，请稍后再试');
       // 保持 LOADING 状态，用户可通过重试按钮重新加载
     }
+  }
+
+  private setLoadingErrorState(message: string, hint: string = ''): void {
+    this.loadingError = message;
+    this.loadingErrorHint = hint;
+  }
+
+  private resolveLoadingErrorHint(message: string): string {
+    if (this.loadingQuotaBlocked) {
+      return '基础会员今日学习额度已用完，明天会自动恢复';
+    }
+
+    if (message.indexOf('服务') >= 0 || message.indexOf('网络') >= 0 || message.indexOf('重试') >= 0) {
+      return '可能正在短暂维护或网络波动，请稍后再试';
+    }
+
+    if (message.indexOf('暂无词表') >= 0) {
+      return '这关内容还在整理中，可以先学习其他关卡';
+    }
+
+    return '你可以点击下方按钮重新加载本关内容';
+  }
+
+  private loadingActionLabel(): string {
+    if (this.loadingNeedLogin) {
+      return '去登录';
+    }
+    if (this.loadingQuotaBlocked) {
+      return '返回学习页';
+    }
+    return '重试';
+  }
+
+  private loadingTitleColor(): string {
+    if (this.loadingNeedLogin || this.loadingQuotaBlocked) {
+      return COLORS.WARNING;
+    }
+    return COLORS.TEXT_PRIMARY;
+  }
+
+  private loadingIconColor(): string {
+    if (this.loadingNeedLogin || this.loadingQuotaBlocked) {
+      return COLORS.WARNING;
+    }
+    return COLORS.PRIMARY;
   }
 
   private async goLoginTab(): Promise<void> {
@@ -397,16 +455,26 @@ struct LessonPage {
         Image(this.loadingNeedLogin ? $r('app.media.ic_lock') : $r('app.media.ic_retry'))
           .width(64)
           .height(64)
-          .fillColor(this.loadingNeedLogin ? COLORS.WARNING : COLORS.TEXT_SECONDARY)
+          .fillColor(this.loadingIconColor())
           .opacity(0.8)
 
         Text(this.loadingError)
-          .fontSize(16)
-          .fontColor(COLORS.WARNING)
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.loadingTitleColor())
           .margin({ top: 16 })
           .textAlign(TextAlign.Center)
 
-        Button(this.loadingNeedLogin ? '去登录' : '重试')
+        if (this.loadingErrorHint !== '') {
+          Text(this.loadingErrorHint)
+            .fontSize(13)
+            .fontColor(COLORS.TEXT_SECONDARY)
+            .lineHeight(20)
+            .margin({ top: 8, left: 36, right: 36 })
+            .textAlign(TextAlign.Center)
+        }
+
+        Button(this.loadingActionLabel())
           .type(ButtonType.Capsule)
           .backgroundColor(COLORS.PRIMARY)
           .fontColor('#ffffff')
@@ -418,6 +486,10 @@ struct LessonPage {
           .onClick(() => {
             if (this.loadingNeedLogin) {
               this.goLoginTab();
+              return;
+            }
+            if (this.loadingQuotaBlocked) {
+              router.back();
               return;
             }
             this.loadLessonData();

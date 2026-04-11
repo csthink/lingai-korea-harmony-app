@@ -9,6 +9,15 @@ import preferences from '@ohos.data.preferences';
 import { themeManager } from '../utils/ThemeManager';
 import ApiService from '../services/ApiService';
 import PreferencesService from '../services/PreferencesService';
+import { AuthRequiredState } from './AuthRequiredState';
+import { UserInfo } from '../models/DataModels';
+
+class IndexRouteParams {
+  tabIndex: number = 3;
+  navFrom: string = 'study_gate';
+  navAt: number = Date.now();
+  openSheetMode: string = 'login';
+}
 
 // 关卡状态枚举
 export enum LevelStatus {
@@ -34,6 +43,7 @@ export class LevelNodeData {
 
 @Component
 export struct StudyContent {
+  @Prop @Watch('onActiveTabIndexChange') activeTabIndex: number = -1;
   @State selectedTabIndex: number = 0;  // 0: TOPIK I, 1: TOPIK II, 2: 必备单词
   @State currentLevel: number = 1;
   @State levels: LevelNodeData[] = [];
@@ -45,8 +55,12 @@ export struct StudyContent {
   @State ripple3Scale: number = 1.0;  // 第3层波纹缩放
   @State ripple3Opacity: number = 0.2;  // 第3层波纹透明度
   @State themeVersion: number = 0;
+  @State authChecked: boolean = false;
+  @State requiresLogin: boolean = false;
+  @State userInfo: UserInfo = new UserInfo();
 
   private isNavigating: boolean = false;
+  private navigatingToLogin: boolean = false;
   // 从 API 加载的每个 level 的数据（key: level值）
   private levelLessonCounts: Map<number, number> = new Map();  // 接口 lesson_count
   private levelWordCounts: Map<number, number> = new Map();    // 接口 word_count（兆底）
@@ -57,6 +71,13 @@ export struct StudyContent {
   private ripplePhase: number = 0;  // 波纹相位
   private unsubscribeTheme: (() => void) | null = null;
 
+  onActiveTabIndexChange(): void {
+    if (this.activeTabIndex !== 1) {
+      return;
+    }
+    void this.refreshForVisibleTab();
+  }
+
   async aboutToAppear() {
     if (this.unsubscribeTheme === null) {
       this.unsubscribeTheme = themeManager.subscribe(() => {
@@ -65,6 +86,53 @@ export struct StudyContent {
     }
 
     const context = getContext(this);
+    await this.refreshAccessState(context);
+    if (this.requiresLogin) {
+      return;
+    }
+    await this.prepareAuthorizedContent(context);
+  }
+
+  private async refreshForVisibleTab(): Promise<void> {
+    const context = getContext(this);
+    await this.refreshAccessState(context);
+    if (this.requiresLogin) {
+      return;
+    }
+    await this.prepareAuthorizedContent(context);
+  }
+
+  private async refreshAccessState(context: Context): Promise<void> {
+    const api = ApiService.getInstance();
+    await api.init(context);
+    this.requiresLogin = api.getToken().length === 0;
+    if (this.requiresLogin) {
+      this.userInfo = new UserInfo();
+    }
+    this.authChecked = true;
+  }
+
+  private async loadUserInfo(context: Context): Promise<void> {
+    try {
+      const api = ApiService.getInstance();
+      await api.init(context);
+      if (!api.getToken()) {
+        this.userInfo = new UserInfo();
+        return;
+      }
+      this.userInfo = await api.getCurrentUserInfo();
+    } catch (e) {
+      console.warn('[StudyContent] loadUserInfo failed, using default quota');
+      this.requiresLogin = ApiService.getInstance().getToken().length === 0;
+      this.userInfo = new UserInfo();
+    }
+  }
+
+  private async prepareAuthorizedContent(context: Context): Promise<void> {
+    await this.loadUserInfo(context);
+    if (this.requiresLogin) {
+      return;
+    }
 
     // 读取每关单词数设置
     try {
@@ -129,6 +197,7 @@ export struct StudyContent {
   aboutToDisappear() {
     if (this.breathTimer !== -1) {
       clearInterval(this.breathTimer);
+      this.breathTimer = -1;
     }
     if (this.unsubscribeTheme !== null) {
       this.unsubscribeTheme();
@@ -137,6 +206,10 @@ export struct StudyContent {
   }
 
   startRippleAnimation() {
+    if (this.breathTimer !== -1) {
+      clearInterval(this.breathTimer);
+      this.breathTimer = -1;
+    }
     // 水波纹向外扩散动画：3层波纹循环扩散
     this.breathTimer = setInterval(() => {
       this.ripplePhase += 0.025;  // 降低速度，更柔和的扩散节奏
@@ -206,15 +279,39 @@ export struct StudyContent {
 
   build() {
     Column() {
-      // 分段选择器
-      this.TabSelector()
+      if (!this.authChecked) {
+        Column() {
+          LoadingProgress()
+            .width(42)
+            .height(42)
+            .color(COLORS.PRIMARY)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.requiresLogin) {
+        AuthRequiredState({
+          title: '注册后开始学习',
+          description: '试运行阶段需要先登录 / 注册，才能解锁学习路径与关卡内容。',
+          source: 'study_tab_gate',
+        })
+      } else {
+        // 分段选择器
+        this.TabSelector()
+        this.MemberQuotaBanner()
 
-      // 关卡地图
-      this.LevelMap()
+        // 关卡地图
+        this.LevelMap()
+      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(COLORS.BACKGROUND)
+    .onAppear(() => {
+      const context = getContext(this);
+      void this.refreshAccessState(context);
+      void this.loadUserInfo(context);
+    })
   }
 
   @Builder
@@ -272,6 +369,44 @@ export struct StudyContent {
 
   getNodeXPosition(index: number): number {
     return this.NODE_POSITIONS[index % this.NODE_POSITIONS.length];
+  }
+
+  @Builder
+  MemberQuotaBanner() {
+    Row() {
+      Column() {
+        Text('今日学习额度')
+          .fontSize(12)
+          .fontColor(COLORS.TEXT_SECONDARY)
+
+        Text(this.lessonQuotaSummary())
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(COLORS.TEXT_PRIMARY)
+          .margin({ top: 4 })
+
+        Text(this.lessonQuotaCaption())
+          .fontSize(11)
+          .fontColor(COLORS.TEXT_HINT)
+          .margin({ top: 6 })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Text(this.lessonQuotaBadge())
+        .fontSize(12)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.lessonQuotaBadgeTextColor())
+        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+        .backgroundColor(this.lessonQuotaBadgeBackground())
+        .borderRadius(999)
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+    .margin({ left: 20, right: 20, bottom: 12 })
+    .backgroundColor(COLORS.SURFACE)
+    .borderRadius(20)
+    .border({ width: 1, color: 'rgba(99, 102, 241, 0.08)' })
   }
 
   @Builder
@@ -464,7 +599,55 @@ export struct StudyContent {
     }
   }
 
+  private lessonQuotaSummary(): string {
+    if (this.userInfo.dailyLessonLimit <= 0) {
+      return '当前会员今日学习不限量';
+    }
+    if (this.userInfo.dailyLessonRemaining <= 0) {
+      return `今天的 ${this.userInfo.dailyLessonLimit} 关额度已用完`;
+    }
+    return `今天还可学习 ${this.userInfo.dailyLessonRemaining}/${this.userInfo.dailyLessonLimit} 关`;
+  }
+
+  private lessonQuotaCaption(): string {
+    if (this.userInfo.dailyLessonLimit <= 0) {
+      return '升级权益开放后，这里会同步展示最新会员规则。';
+    }
+    if (this.userInfo.dailyLessonRemaining <= 0) {
+      return '明天会自动恢复额度，当前关卡重复进入不会额外扣减。';
+    }
+    return '同一关当天重复进入不重复扣减，适合放心回看。';
+  }
+
+  private lessonQuotaBadge(): string {
+    if (this.userInfo.dailyLessonLimit <= 0) {
+      return '不限量';
+    }
+    if (this.userInfo.dailyLessonRemaining <= 0) {
+      return '已用完';
+    }
+    return `剩 ${this.userInfo.dailyLessonRemaining} 关`;
+  }
+
+  private lessonQuotaBadgeTextColor(): string {
+    if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
+      return '#b91c1c';
+    }
+    return COLORS.PRIMARY;
+  }
+
+  private lessonQuotaBadgeBackground(): string {
+    if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
+      return 'rgba(239, 68, 68, 0.12)';
+    }
+    return 'rgba(99, 102, 241, 0.12)';
+  }
+
   async goToLesson(lessonId: number) {
+    if (this.requiresLogin) {
+      await this.goLoginTab();
+      return;
+    }
     if (this.isNavigating) return;
     this.isNavigating = true;
     try {
@@ -480,6 +663,38 @@ export struct StudyContent {
       console.error('[StudyContent] navigation failed:', e);
     } finally {
       this.isNavigating = false;
+    }
+  }
+
+  private async goLoginTab(): Promise<void> {
+    if (this.navigatingToLogin) {
+      return;
+    }
+    this.navigatingToLogin = true;
+
+    const params = new IndexRouteParams();
+    params.tabIndex = 3;
+    params.navFrom = 'study_tab_gate';
+    params.navAt = Date.now();
+    params.openSheetMode = 'login';
+
+    try {
+      await router.replaceUrl({
+        url: 'pages/Index',
+        params,
+      });
+    } catch (replaceErr) {
+      console.warn('[StudyContent] replaceUrl failed:', JSON.stringify(replaceErr));
+      try {
+        await router.pushUrl({
+          url: 'pages/Index',
+          params,
+        });
+      } catch (pushErr) {
+        console.error('[StudyContent] pushUrl failed:', JSON.stringify(pushErr));
+      }
+    } finally {
+      this.navigatingToLogin = false;
     }
   }
 }

@@ -295,6 +295,18 @@ export class UserInfo {
   phone: string = '';          // 脱敏手机号
   nickname: string = '';
   avatar: string = '';
+  memberLevel: string = 'BASIC';
+  memberLevelLabel: string = '基础会员';
+  proEnabled: boolean = false;
+  dailyLessonLimit: number = 2;
+  dailyLessonUsed: number = 0;
+  dailyLessonRemaining: number = 2;
+  dailyDictLimit: number = 50;
+  dailyDictUsed: number = 0;
+  dailyDictRemaining: number = 50;
+  dailyAiLimit: number = 10;
+  dailyAiUsed: number = 0;
+  dailyAiRemaining: number = 10;
   vipStatus: string = '';      // 'NORMAL' | 'VIP' | 'PRO'
   vipExpireAt: number = 0;
 

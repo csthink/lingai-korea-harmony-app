@@ -2,6 +2,7 @@
   "src": [
     "pages/Index",
     "pages/LessonPage",
+    "pages/MemberPage",
     "pages/StatisticsPage",
     "pages/SSETestPage",
     "pages/SettingsPage"

@@ -5,12 +5,19 @@
  */
 import router from '@ohos.router';
 import { COLORS, WORDS_PER_LESSON } from '../utils/Constants';
-import { DailyTask } from '../models/DataModels';
+import { DailyTask, UserInfo } from '../models/DataModels';
 import TaskTrackingService from '../services/TaskTrackingService';
 import ApiService from '../services/ApiService';
 import PreferencesService from '../services/PreferencesService';
 import { themeManager } from '../utils/ThemeManager';
 import preferences from '@ohos.data.preferences';
+
+class IndexRouteParams {
+  tabIndex: number = 3;
+  navFrom: string = 'home_gate';
+  navAt: number = Date.now();
+  openSheetMode: string = 'login';
+}
 
 @Component
 export struct HomeContent {
@@ -24,9 +31,11 @@ export struct HomeContent {
   @State currentLevel: number = 1;
   @State currentLessonId: number = 1;
   @State lessonTitle: string = '关卡 1';
+  @State userInfo: UserInfo = new UserInfo();
   @State themeVersion: number = 0;
 
   private isNavigating: boolean = false;
+  private navigatingToLogin: boolean = false;
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
   private unsubscribeTheme: (() => void) | null = null;
   private unsubscribeTaskUpdate: (() => void) | null = null;
@@ -95,20 +104,27 @@ export struct HomeContent {
       await api.init(context);
       if (!api.getToken()) {
         this.userName = '小灵友';
+        this.userInfo = new UserInfo();
         return;
       }
       const userInfo = await api.getCurrentUserInfo();
+      this.userInfo = userInfo;
       this.userName = this.resolveFriendlyUserName(userInfo.nickname, userInfo.phone);
     } catch (e) {
       console.warn('[HomeContent] loadUserInfo failed, using default');
-      if (!this.userName) {
+      const api = ApiService.getInstance();
+      this.userInfo = new UserInfo();
+      if (!api.getToken()) {
+        this.userName = '小灵友';
+      } else if (!this.userName) {
         this.userName = '小灵友';
       }
     }
   }
 
   /**
-   * 从本地偏好读取学习进度，然后从 API 获取该关卡的词数
+   * 从本地偏好读取学习进度，并基于设置估算当前关卡词数。
+   * 首页不预取真实关卡词表，避免浏览首页时提前消耗正式额度。
    */
   private async loadLearningProgress(context: Context) {
     try {
@@ -132,18 +148,14 @@ export struct HomeContent {
       // 使用默认值
     }
 
-    // 从 API 获取当前关卡词数
-    try {
-      const api = ApiService.getInstance();
-      const response = await api.getLessonWords(this.currentLevel, this.currentLessonId, wordsPerLesson);
-      if (response && response.wordCount > 0) {
-        this.newWordsCount = response.wordCount;
-      } else if (response && response.words && response.words.length > 0) {
-        this.newWordsCount = response.words.length;
-      }
-    } catch (e) {
-      console.warn('[HomeContent] getLessonWords failed, newWordsCount stays default');
+    const api = ApiService.getInstance();
+    await api.init(context);
+    if (!api.getToken()) {
+      this.newWordsCount = 0;
+      return;
     }
+
+    this.newWordsCount = wordsPerLesson;
   }
 
   aboutToDisappear() {
@@ -179,6 +191,9 @@ export struct HomeContent {
     .width('100%')
     .height('100%')
     .backgroundColor(COLORS.BACKGROUND)
+    .onAppear(() => {
+      void this.loadUserInfo(getContext(this));
+    })
   }
 
   @Builder
@@ -282,6 +297,15 @@ export struct HomeContent {
             .fontSize(12)
             .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 2 })
+
+          Text(this.lessonQuotaHint())
+            .fontSize(11)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.lessonQuotaTextColor())
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .backgroundColor(this.lessonQuotaBackgroundColor())
+            .borderRadius(999)
+            .margin({ top: 8 })
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
@@ -363,6 +387,10 @@ export struct HomeContent {
   }
 
   async startLearning() {
+    if (!ApiService.getInstance().getToken()) {
+      await this.goLoginTab('home_start_learning');
+      return;
+    }
     if (this.isNavigating) return;
     this.isNavigating = true;
     try {
@@ -382,6 +410,10 @@ export struct HomeContent {
   }
 
   async startReview() {
+    if (!ApiService.getInstance().getToken()) {
+      await this.goLoginTab('home_start_review');
+      return;
+    }
     if (this.isNavigating) return;
     this.isNavigating = true;
     try {
@@ -408,5 +440,70 @@ export struct HomeContent {
   private estimateMinutes(): number {
     if (this.newWordsCount <= 0) return 1;
     return Math.max(1, Math.round(this.newWordsCount * 0.5));
+  }
+
+  private lessonQuotaHint(): string {
+    if (!ApiService.getInstance().getToken()) {
+      return '登录后可解锁今日 2 关学习额度';
+    }
+    if (this.userInfo.dailyLessonLimit <= 0) {
+      return '当前会员今日学习不限量';
+    }
+    if (this.userInfo.dailyLessonRemaining <= 0) {
+      return `今日额度已用完 · 已完成 ${this.userInfo.dailyLessonUsed}/${this.userInfo.dailyLessonLimit} 关`;
+    }
+    return `今日还可学习 ${this.userInfo.dailyLessonRemaining}/${this.userInfo.dailyLessonLimit} 关`;
+  }
+
+  private lessonQuotaTextColor(): string {
+    if (!ApiService.getInstance().getToken()) {
+      return COLORS.PRIMARY;
+    }
+    if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
+      return '#b91c1c';
+    }
+    return COLORS.TEXT_SECONDARY;
+  }
+
+  private lessonQuotaBackgroundColor(): string {
+    if (!ApiService.getInstance().getToken()) {
+      return 'rgba(99, 102, 241, 0.12)';
+    }
+    if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
+      return 'rgba(239, 68, 68, 0.12)';
+    }
+    return 'rgba(15, 23, 42, 0.05)';
+  }
+
+  private async goLoginTab(navFrom: string): Promise<void> {
+    if (this.navigatingToLogin) {
+      return;
+    }
+    this.navigatingToLogin = true;
+
+    const params = new IndexRouteParams();
+    params.tabIndex = 3;
+    params.navFrom = navFrom;
+    params.navAt = Date.now();
+    params.openSheetMode = 'login';
+
+    try {
+      await router.replaceUrl({
+        url: 'pages/Index',
+        params,
+      });
+    } catch (replaceErr) {
+      console.warn('[HomeContent] replaceUrl to login tab failed:', JSON.stringify(replaceErr));
+      try {
+        await router.pushUrl({
+          url: 'pages/Index',
+          params,
+        });
+      } catch (pushErr) {
+        console.error('[HomeContent] pushUrl to login tab failed:', JSON.stringify(pushErr));
+      }
+    } finally {
+      this.navigatingToLogin = false;
+    }
   }
 }

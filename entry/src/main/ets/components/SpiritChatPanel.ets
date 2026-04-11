@@ -3,10 +3,12 @@
  * 底部弹出半屏卡片，支持多轮对话
  */
 import { COLORS } from '../utils/Constants';
-import ApiService from '../services/ApiService';
+import ApiService, { ApiError } from '../services/ApiService';
 import SpiritChatService from '../services/SpiritChatService';
+import { UserInfo } from '../models/DataModels';
 import pasteboard from '@ohos.pasteboard';
 import promptAction from '@ohos.promptAction';
+import http from '@ohos.net.http';
 
 // API消息类型
 class SpiritChatMessageItem {
@@ -45,10 +47,13 @@ export struct SpiritChatPanel {
   @State inputText: string = '';
   @State isLoading: boolean = false;
   @State canStop: boolean = false;
+  @State userInfo: UserInfo = new UserInfo();
   
   private listScroller: Scroller = new Scroller();
   private apiService: ApiService = ApiService.getInstance();
   private chatService: SpiritChatService = SpiritChatService.getInstance();
+  private activeChatRequest: http.HttpRequest | null = null;
+  private chatRequestVersion: number = 0;
   
   private safeShowToast(message: string, duration: number = 1500): void {
     try {
@@ -75,6 +80,8 @@ export struct SpiritChatPanel {
     // 初始化并加载历史
     const context = getContext(this);
     await this.chatService.init(context);
+    await this.apiService.init(context);
+    await this.refreshQuotaInfo(context);
     
     // 加载历史消息
     const storedMessages = this.chatService.getMessages();
@@ -98,6 +105,53 @@ export struct SpiritChatPanel {
       const welcome = new ChatMessage('assistant', '你好！我是小语灵 🧚\n有任何韩语学习问题都可以问我哦~');
       this.messages.push(welcome);
       await this.chatService.addMessage(welcome.role, welcome.content);
+    }
+  }
+
+  private async refreshQuotaInfo(context: Context): Promise<void> {
+    try {
+      if (!this.apiService.getToken()) {
+        this.userInfo = new UserInfo();
+        return;
+      }
+      this.userInfo = await this.apiService.getCurrentUserInfo();
+    } catch (error) {
+      console.warn('[SpiritChatPanel] load quota info failed:', JSON.stringify(error));
+    }
+  }
+
+  aboutToDisappear() {
+    this.cancelActiveRequest(false);
+  }
+
+  private cancelActiveRequest(showToast: boolean): void {
+    this.chatRequestVersion += 1;
+    this.isLoading = false;
+    this.canStop = false;
+
+    if (this.activeChatRequest !== null) {
+      try {
+        this.activeChatRequest.destroy();
+      } catch (e) {
+        console.error('[SpiritChatPanel] Cancel request failed:', JSON.stringify(e));
+      }
+      this.activeChatRequest = null;
+    }
+
+    if (showToast) {
+      this.safeShowToast('已停止生成');
+    }
+  }
+
+  private finalizeRequest(request: http.HttpRequest): void {
+    if (this.activeChatRequest === request) {
+      this.activeChatRequest = null;
+    }
+
+    try {
+      request.destroy();
+    } catch (_e) {
+      // ignore repeated destroy
     }
   }
   
@@ -132,10 +186,18 @@ export struct SpiritChatPanel {
       }
       apiMessages.push(new SpiritChatMessageItem(msg.role, content));
     }
-    
+
+    const requestVersion = ++this.chatRequestVersion;
+    const request = http.createHttp();
+    this.activeChatRequest = request;
+
     // 调用API获取回复
     try {
-      const reply = await this.apiService.spiritChat(apiMessages);
+      const reply = await this.apiService.spiritChat(apiMessages, request);
+      if (requestVersion !== this.chatRequestVersion || this.activeChatRequest !== request) {
+        return;
+      }
+
       if (reply) {
         const assistantMsg = new ChatMessage('assistant', reply);
         this.messages.push(assistantMsg);
@@ -146,27 +208,40 @@ export struct SpiritChatPanel {
         await this.chatService.addMessage(errorMsg.role, errorMsg.content);
       }
     } catch (e) {
-      const errorMsg = new ChatMessage('assistant', '网络异常，请检查连接后重试 📡');
+      if (requestVersion !== this.chatRequestVersion || this.activeChatRequest !== request) {
+        return;
+      }
+
+      let errorText = '网络异常，请检查连接后重试 📡';
+      if (e instanceof ApiError) {
+        errorText = e.message;
+      }
+      const errorMsg = new ChatMessage('assistant', errorText);
       this.messages.push(errorMsg);
       await this.chatService.addMessage(errorMsg.role, errorMsg.content);
     } finally {
-      this.isLoading = false;
-      this.canStop = false;
-      setTimeout(() => {
-        this.listScroller.scrollEdge(Edge.Bottom);
-      }, 100);
+      const shouldResetUi = requestVersion === this.chatRequestVersion && this.activeChatRequest === request;
+      this.finalizeRequest(request);
+      await this.refreshQuotaInfo(getContext(this));
+
+      if (shouldResetUi) {
+        this.isLoading = false;
+        this.canStop = false;
+        setTimeout(() => {
+          this.listScroller.scrollEdge(Edge.Bottom);
+        }, 100);
+      }
     }
   }
   
   // 停止生成
   stopGeneration() {
-    this.isLoading = false;
-    this.canStop = false;
-    // TODO: 取消API请求
+    this.cancelActiveRequest(true);
   }
   
   // 清空对话历史
   async clearHistory() {
+    this.cancelActiveRequest(false);
     await this.chatService.clearSession();
     this.messages = [];
     // 添加新的欢迎消息
@@ -175,6 +250,69 @@ export struct SpiritChatPanel {
     await this.chatService.addMessage(welcome.role, welcome.content);
   }
 
+  private aiQuotaSummary(): string {
+    if (this.userInfo.dailyAiLimit <= 0) {
+      return '当前会员今日可不限量向小语灵提问';
+    }
+    if (this.userInfo.dailyAiRemaining <= 0) {
+      return `今日 ${this.userInfo.dailyAiLimit} 次提问额度已用完`;
+    }
+    return `今日还可提问 ${this.userInfo.dailyAiRemaining}/${this.userInfo.dailyAiLimit} 次`;
+  }
+
+  private aiQuotaCaption(): string {
+    if (this.userInfo.dailyAiLimit <= 0) {
+      return '后续会员能力开放后，这里会同步展示最新提问规则。';
+    }
+    if (this.userInfo.dailyAiRemaining <= 0) {
+      return '明天会自动恢复额度，可以先继续课程学习或使用词典。';
+    }
+    if (this.userInfo.dailyAiRemaining <= 3) {
+      return '剩余次数不多了，优先问当前关卡最关键的问题更划算。';
+    }
+    return '同一学习上下文里，10 分钟内重复提问相同问题不重复扣减。';
+  }
+
+  private aiQuotaBadge(): string {
+    if (this.userInfo.dailyAiLimit <= 0) {
+      return '不限量';
+    }
+    if (this.userInfo.dailyAiRemaining <= 0) {
+      return '已用完';
+    }
+    return `剩 ${this.userInfo.dailyAiRemaining} 次`;
+  }
+
+  private aiQuotaTextColor(): string {
+    if (this.userInfo.dailyAiLimit > 0 && this.userInfo.dailyAiRemaining <= 0) {
+      return '#b91c1c';
+    }
+    if (this.userInfo.dailyAiRemaining <= 3) {
+      return '#c2410c';
+    }
+    return COLORS.TEXT_SECONDARY;
+  }
+
+  private aiQuotaBadgeTextColor(): string {
+    if (this.userInfo.dailyAiLimit > 0 && this.userInfo.dailyAiRemaining <= 0) {
+      return '#b91c1c';
+    }
+    if (this.userInfo.dailyAiRemaining <= 3) {
+      return '#c2410c';
+    }
+    return COLORS.PRIMARY;
+  }
+
+  private aiQuotaBadgeBackground(): string {
+    if (this.userInfo.dailyAiLimit > 0 && this.userInfo.dailyAiRemaining <= 0) {
+      return 'rgba(239, 68, 68, 0.12)';
+    }
+    if (this.userInfo.dailyAiRemaining <= 3) {
+      return 'rgba(249, 115, 22, 0.14)';
+    }
+    return 'rgba(99, 102, 241, 0.12)';
+  }
+  
   build() {
     Column() {
       // 顶部拖拽条 + 关闭按钮
@@ -234,6 +372,40 @@ export struct SpiritChatPanel {
       }
       .width('100%')
       .padding({ left: 16, right: 16, bottom: 8 })
+
+      Row() {
+        Column() {
+          Text('今日 AI 助手额度')
+            .fontSize(12)
+            .fontColor(COLORS.TEXT_SECONDARY)
+
+          Text(this.aiQuotaSummary())
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(COLORS.TEXT_PRIMARY)
+            .margin({ top: 4 })
+
+          Text(this.aiQuotaCaption())
+            .fontSize(11)
+            .fontColor(this.aiQuotaTextColor())
+            .margin({ top: 6 })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+
+        Text(this.aiQuotaBadge())
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.aiQuotaBadgeTextColor())
+          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+          .backgroundColor(this.aiQuotaBadgeBackground())
+          .borderRadius(999)
+      }
+      .width('100%')
+      .margin({ left: 16, right: 16, bottom: 10 })
+      .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+      .backgroundColor(COLORS.SURFACE)
+      .borderRadius(18)
       
       // 消息列表
       List({ scroller: this.listScroller, space: 12 }) {
@@ -304,6 +476,7 @@ export struct SpiritChatPanel {
           .type(ButtonType.Circle)
           .backgroundColor(this.inputText.trim() ? COLORS.PRIMARY : COLORS.SURFACE)
           .margin({ left: 8 })
+          .enabled(this.inputText.trim().length > 0)
           .onClick(() => {
             this.sendMessage();
           })
