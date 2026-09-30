@@ -1,19 +1,26 @@
-import { hvigor } from '@ohos/hvigor';
+import { hvigor, hvigorCore } from '@ohos/hvigor';
 import { appTasks, OhosAppContext, OhosPluginId } from '@ohos/hvigor-ohos-plugin';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
 
-// Explicit opt-in keeps ordinary IDE Sync and other products unchanged.
-if (process.env.LINGAI_LOCAL_SIGNING === '1') {
+// DevEco Run enters assembleHap without an explicit buildMode or environment flag.
+// Hvigor resolves the effective build mode before this hook runs.
+const explicitLocalSigning = process.env.LINGAI_LOCAL_SIGNING === '1';
+const assembleHapEntry = hvigorCore.isCommandEntryTask('assembleHap');
+if (explicitLocalSigning || assembleHapEntry) {
   hvigor.afterNodeEvaluate((node) => {
     if (node.getNodePath() !== hvigor.getRootNode().getNodePath()) {
       return;
     }
     const context = node.getContext(OhosPluginId.OHOS_APP_PLUGIN) as OhosAppContext;
-    if (!context || context.getCurrentProduct().getProductName() !== 'default' ||
-        context.getBuildMode() !== 'debug') {
-      throw new Error('LOCAL_SIGNING_DEBUG_ONLY');
+    const eligible = context && context.getCurrentProduct().getProductName() === 'default' &&
+      context.getBuildMode() === 'debug';
+    if (!eligible) {
+      if (explicitLocalSigning) {
+        throw new Error('LOCAL_SIGNING_DEBUG_ONLY');
+      }
+      return;
     }
     const root = node.getNodePath();
     const validation = spawnSync('python3', [

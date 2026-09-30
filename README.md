@@ -139,7 +139,7 @@ python3 tools/configure-signing.py check
 
 迁移工具仅从当前工程的已保存配置读取 `default`，校验原应用身份、Profile 有效期和批准的证书指纹，将完整对象写入 `.local/signing/default.json`（`0600`），然后清空受版本控制文件中 default 的材料值。已有本地配置不会被覆盖；若遇到并发编辑，保留受保护副本并停止，不覆盖新编辑。证书更新需要重新审阅工具中的公开指纹约束。工具不解密密码、不读取 IDE 日志、不安装设备。
 
-构建时必须显式设置 `LINGAI_LOCAL_SIGNING=1`，仅允许 `default` / `debug`，通过 Hvigor 官方配置接口加载本地对象。普通 IDE Sync 不启用注入；不得把 appstore 改绑到 default。每次构建重新核验受保护文件权限、身份、有效期及材料摘要，校验失败就停止。
+下文命令行构建显式设置 `LINGAI_LOCAL_SIGNING=1`。DevEco Run 的 `assembleHap` 入口没有该环境变量时，Hvigor 仅在当前产品为 `default` 且有效构建模式为 `debug` 时自动加载本地对象；未指定 `buildMode` 的 `assembleHap` 由 Hvigor 解析为 `debug`。普通 IDE Sync、其他产品和 release 模式不自动注入；显式设置变量时仍拒绝其他产品或模式。不得把 appstore 改绑到 default。每次注入重新核验受保护文件权限、身份、有效期及材料摘要，校验失败就停止。
 
 迁移保留 `release` 原对象和 `appstore -> release` 原引用及其他文件内容。既有 release 密码字段仍在历史及受控文件中，本工具仅隔离本次新 debug 配置，不能把整份文件或历史仓库称为无凭据。不要直接归档工作树、打印签名配置差异或提交 `.local`、`material`、私钥及任何密码配置。源码交付前单独核对暂存范围。
 

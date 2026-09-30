@@ -174,31 +174,49 @@ class SigningTests(unittest.TestCase):
         self.assertIn('concurrent edit', (self.root / 'build-profile.json5').read_text())
         self.assertTrue((self.root / '.local/signing/default.json').is_file())
 
-    def test_hvigor_opt_in_and_product_guard(self):
+    def test_hvigor_entry_mode_and_product_guard(self):
         script = r'''
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const ts=require('/Applications/DevEco-Studio.app/Contents/tools/hvigor/hvigor/node_modules/typescript');
 const source=fs.readFileSync(process.argv[1],'utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
-function run(flag,product='default',mode='debug',status=0){
+function run(flag,entry='sync',product='default',mode='debug',status=0){
  const hooks=[];const release={name:'release',material:{marker:'SYNTHETIC-UNCHANGED'}};
- let profile={app:{signingConfigs:[{name:'default',material:{}},release]}};let updates=0;
+ let profile={app:{signingConfigs:[{name:'default',material:{}},release]}};
+ let updates=0,validations=0,reads=0;
  const context={getCurrentProduct:()=>({getProductName:()=>product}),getBuildMode:()=>mode,
   getBuildProfileOpt:()=>profile,setBuildProfileOpt:p=>{profile=p;updates++;}};
  const node={getNodePath:()=>'/synthetic',getContext:()=>context};
  const injected={name:'default',material:{marker:'SYNTHETIC-LOCAL'}};
- const modules={'@ohos/hvigor':{hvigor:{afterNodeEvaluate:f=>hooks.push(f),getRootNode:()=>node}},
+ const modules={'@ohos/hvigor':{hvigor:{afterNodeEvaluate:f=>hooks.push(f),getRootNode:()=>node},
+  hvigorCore:{isCommandEntryTask:name=>name===entry}},
   '@ohos/hvigor-ohos-plugin':{appTasks:{},OhosPluginId:{OHOS_APP_PLUGIN:'app'}},
-  fs:{readFileSync:()=>JSON.stringify({signingConfig:injected})},path:require('path'),
-  child_process:{spawnSync:()=>({status})}};
+  fs:{readFileSync:()=>{reads++;return JSON.stringify({signingConfig:injected});}},path:require('path'),
+  child_process:{spawnSync:()=>{validations++;return {status};}}};
  vm.runInNewContext(code,{exports:{},process:{env:{LINGAI_LOCAL_SIGNING:flag}},require:n=>modules[n]});
- if(flag!=='1'){assert.equal(hooks.length,0);return;}
- if(product!=='default'||mode!=='debug'){assert.throws(()=>hooks[0](node),/LOCAL_SIGNING_DEBUG_ONLY/);return;}
- if(status!==0){assert.throws(()=>hooks[0](node),/LOCAL_SIGNING_INVALID/);assert.equal(updates,0);return;}
+ if(flag!=='1'&&entry!=='assembleHap'){
+  assert.equal(hooks.length,0);assert.equal(validations,0);assert.equal(reads,0);return;
+ }
+ assert.equal(hooks.length,1);
+ if(product!=='default'||mode!=='debug'){
+  if(flag==='1')assert.throws(()=>hooks[0](node),/LOCAL_SIGNING_DEBUG_ONLY/);
+  else hooks[0](node);
+  assert.equal(updates,0);assert.equal(validations,0);assert.equal(reads,0);
+  assert.equal(profile.app.signingConfigs[1],release);return;
+ }
+ if(status!==0){
+  assert.throws(()=>hooks[0](node),/LOCAL_SIGNING_INVALID/);
+  assert.equal(updates,0);assert.equal(validations,1);assert.equal(reads,0);return;
+ }
  hooks[0](node);assert.equal(updates,1);assert.equal(profile.app.signingConfigs[1],release);
+ assert.equal(validations,1);assert.equal(reads,1);
  assert.equal(profile.app.signingConfigs[0].material.marker,'SYNTHETIC-LOCAL');
 }
-run(undefined);run('1');run('1','appstore');run('1','default','release');run('1','default','debug',1);
+run(undefined,'sync');run(undefined,'assembleApp');
+run(undefined,'assembleHap');run(undefined,'assembleHap','appstore');
+run(undefined,'assembleHap','default','release');run(undefined,'assembleHap','default','debug',1);
+run('1','sync');run('1','sync','appstore');run('1','sync','default','release');
+run('1','sync','default','debug',1);
 '''
         result = subprocess.run([str(signing.DEVECO / 'tools/node/bin/node'), '-e', script,
                                  str(ROOT / 'hvigorfile.ts')], capture_output=True, text=True)
