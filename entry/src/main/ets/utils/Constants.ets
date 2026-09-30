@@ -3,29 +3,26 @@
  * 适配 ArkTS 严格模式
  */
 
+import { UNIFIED_BASE_URL_DEV } from '../local/Secret.dev';
+
 // ---- API 基址（开发/联调切换） ----
 // 直连 FastAPI（仅本地调试用）
 export const FASTAPI_DIRECT_URL: string = 'http://192.168.1.59:8000';
 // Unified Service 网关（联调 & 生产）
-export const UNIFIED_BASE_URL: string = 'http://192.168.1.59:8080';
-// 当前生效基址 —— 切换此行即可
+export const UNIFIED_BASE_URL: string = UNIFIED_BASE_URL_DEV.trim();
+// 当前生效基址由受控本地配置指定，客户端只访问 Unified
 export const API_BASE_URL: string = UNIFIED_BASE_URL;
 
 // ---- Unified 网关常量 ----
 export const APP_ID: string = 'lingai-harmony';
 export const AUTH_APP_ID: string = '1';
 // ---- 请求签名 ----
-// ⚠️ 占位值——请勿将真实密钥提交到仓库
-// 本地调试：调用 ApiService.getInstance().overrideSignConfig('真实Key', '真实PEM私钥') 注入
-export const APP_KEY: string = '__APP_KEY_PLACEHOLDER__';
-export const APP_PRIVATE_KEY: string = `-----BEGIN PRIVATE KEY-----
-__APP_PRIVATE_KEY_BASE64_PLACEHOLDER__
------END PRIVATE KEY-----`;
+// 默认拒绝未配置的请求；真实本地密钥由 EntryAbility 从忽略文件注入。
+export const APP_KEY: string = '';
+export const APP_PRIVATE_KEY: string = '';
 // ---- 一键登录（阿里云 PNVS）----
-// 当前生效方案：LingAI-HarmonyOS 号码认证  |  更新时间：2026-02-13
-// ⚠️ 占位值——请勿将真实密钥提交到仓库
-// 本地调试：调用 OneClickAuthService.getInstance().overrideSecret('真实密钥') 注入
-export const PNVS_AUTH_SECRET: string = '__PNVS_SECRET_PLACEHOLDER__';
+// 缺少真实 SDK 密钥时拒绝初始化和登录，不回退到占位值。
+export const PNVS_AUTH_SECRET: string = '';
 export const BIZ_API_PREFIX: string = '/api/app/biz';
 export const AUTH_API_PREFIX: string = '/api/app/auth';
 

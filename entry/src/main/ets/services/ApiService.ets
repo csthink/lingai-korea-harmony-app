@@ -6,6 +6,7 @@
 import http from '@ohos.net.http';
 import preferences from '@ohos.data.preferences';
 import deviceInfo from '@ohos.deviceInfo';
+import bundleManager from '@ohos.bundle.bundleManager';
 import { API_BASE_URL, BIZ_API_PREFIX, AUTH_API_PREFIX, AUTH_APP_ID, APP_KEY, APP_PRIVATE_KEY, STORAGE_KEYS } from '../utils/Constants';
 import { RequestSigner } from './RequestSigner';
 import { DictAIResponse, DictSearchResponse, WordEntry, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample, UserInfo } from '../models/DataModels';
@@ -256,20 +257,23 @@ class ApiService {
       'X-App-Id': AUTH_APP_ID,
     };
 
-    // 如果签名密钥不是占位值，执行 RSA 签名
-    if (!this.signingKey.startsWith('__') && !this.signingPrivateKey.includes('PLACEHOLDER')) {
-      const timestamp = Date.now().toString();
-      const nonce = this.generateNonce();
-      const content = `appKey=${this.signingKey}&body=${body}&nonce=${nonce}&timestamp=${timestamp}`;
-      try {
-        const signature = await RequestSigner.signRsaSha256(content, this.signingPrivateKey);
-        headers['X-App-Key'] = this.signingKey;
-        headers['X-Timestamp'] = timestamp;
-        headers['X-Nonce'] = nonce;
-        headers['X-Signature'] = signature;
-      } catch (e) {
-        console.warn('[ApiService] RSA signing failed, sending request without signature:', JSON.stringify(e));
-      }
+    // 配置缺失或签名失败时停止请求，禁止降级为无签名请求。
+    if (!this.signingKey.trim() || !this.signingPrivateKey.trim() ||
+      this.signingKey.startsWith('__') || this.signingPrivateKey.includes('PLACEHOLDER')) {
+      throw new ApiError('应用签名配置未就绪');
+    }
+    const timestamp = Date.now().toString();
+    const nonce = this.generateNonce();
+    const content = `appKey=${this.signingKey}&body=${body}&nonce=${nonce}&timestamp=${timestamp}`;
+    try {
+      const signature = await RequestSigner.signRsaSha256(content, this.signingPrivateKey);
+      headers['X-App-Key'] = this.signingKey;
+      headers['X-Timestamp'] = timestamp;
+      headers['X-Nonce'] = nonce;
+      headers['X-Signature'] = signature;
+    } catch (e) {
+      console.warn('[ApiService] RSA signing failed; request cancelled');
+      throw new ApiError('请求签名失败，请检查应用配置');
     }
 
     if (includeAuth && this.token) {
@@ -663,6 +667,7 @@ class ApiService {
    */
   async loginBySms(phone: string, code: string, context: Context): Promise<string> {
     const url = `${API_BASE_URL}${AUTH_API_PREFIX}/login/sms`;
+    const bundleInfo = await bundleManager.getBundleInfoForSelf(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
 
     const body = JSON.stringify({
       phone: phone,
@@ -671,7 +676,7 @@ class ApiService {
       deviceName: deviceInfo.marketName || deviceInfo.productModel || 'HarmonyOS Device',
       deviceType: 'HARMONY',
       osVersion: deviceInfo.osFullName || 'HarmonyOS',
-      appVersion: '1.0.0',
+      appVersion: bundleInfo.versionName,
     });
 
     const headers = await this.buildSignedHeaders(body, false);
@@ -765,6 +770,7 @@ class ApiService {
    */
   async loginByOneClick(accessToken: string, context: Context, attemptId?: number): Promise<string> {
     const url = `${API_BASE_URL}${AUTH_API_PREFIX}/login/one-click`;
+    const bundleInfo = await bundleManager.getBundleInfoForSelf(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
     
     const body = JSON.stringify({
       accessToken: accessToken,
@@ -772,7 +778,7 @@ class ApiService {
       deviceName: deviceInfo.marketName || 'HarmonyOS Device',
       deviceType: 'HARMONY',
       osVersion: deviceInfo.osFullName || 'HarmonyOS',
-      appVersion: '1.0.0'
+      appVersion: bundleInfo.versionName
     });
 
     const finalHeaders = await this.buildSignedHeaders(body, false);

@@ -11,3 +11,6 @@
 **/.test
 /.appanalyzer
 /entry/src/main/ets/local/Secret.dev.ets
+
+# Local restoration inputs and diagnostics
+/.local/

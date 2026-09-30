@@ -31,9 +31,13 @@ export default class EntryAbility extends UIAbility {
       // 启动时注入真实密钥 (来自本地忽略文件)
       if (PNVS_AUTH_SECRET_DEV && PNVS_AUTH_SECRET_DEV.trim().length > 0) {
         OneClickAuthService.getInstance().overrideSecret(PNVS_AUTH_SECRET_DEV.trim());
+        OneClickAuthService.getInstance().init(this.context).catch(() => {
+          hilog.error(DOMAIN, 'testTag', '%{public}s', 'OneClickAuthService initialization failed');
+        });
+      } else {
+        // 缺少真实配置时保持 SDK 未初始化，登录由 CONFIG_MISMATCH 明确拒绝。
+        hilog.warn(DOMAIN, 'testTag', '%{public}s', 'OneClickAuthService CONFIG_MISMATCH:EMPTY_SECRET');
       }
-      
-      OneClickAuthService.getInstance().init(this.context);
     } catch (err) {
       hilog.error(DOMAIN, 'testTag', 'OneClickAuthService init failed: %{public}s', JSON.stringify(err));
     }

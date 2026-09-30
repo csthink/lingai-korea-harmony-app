@@ -1,7 +1,7 @@
 # LingAI Korea Harmony App
 
-> LingAI 韩语学习 App —— 鸿蒙原生客户端  
-> 基于 HarmonyOS NEXT（API 12+），使用 ArkTS / ArkUI 开发
+> LingAI 韩语学习 App - 鸿蒙原生客户端
+> 基于 HarmonyOS NEXT（API 21+），使用 ArkTS / ArkUI 开发
 
 ---
 
@@ -40,7 +40,7 @@ LingAI Korea Harmony App 是 LingAI 语言学习平台的韩语学习客户端�
 | 技术        | 版本 / 规格                          |
 | ----------- | ------------------------------------ |
 | OS          | HarmonyOS NEXT                       |
-| SDK         | 6.0.1(21)，API 12+                  |
+| SDK         | 6.0.1(21)，API 21+                  |
 | 语言        | ArkTS（严格模式）                    |
 | UI 框架     | ArkUI（声明式）                      |
 | 构建工具    | hvigor                               |
@@ -85,7 +85,7 @@ LingAI Korea Harmony App 是 LingAI 语言学习平台的韩语学习客户端�
 - 业务请求路径：`/api/app/biz/{fastapiPath}` → Unified 网关 → FastAPI
 - 登录链路：App → `/api/app/auth/*` → Unified
 
-> ⚠️ **注意**：当前开发阶段 `API_BASE_URL` 直连 FastAPI（`http://<IP>:8000`），1.0 上线前需切换为 Unified 地址。
+> 当前 `API_BASE_URL` 由受控本地配置指定 Unified 地址。FastAPI 仅供 Unified 内部调用，手机不能使用 Mac 的 `localhost`。
 
 ---
 
@@ -93,47 +93,65 @@ LingAI Korea Harmony App 是 LingAI 语言学习平台的韩语学习客户端�
 
 ### 1. 工具安装
 
-| 工具             | 最低版本  | 说明                       |
-| ---------------- | --------- | -------------------------- |
-| DevEco Studio    | 5.0+      | 主力 IDE，下载地址见华为官网 |
-| HarmonyOS SDK    | 6.0.1(21) | 在 DevEco Studio 中安装     |
-| Node.js          | 16+       | hvigor 构建依赖             |
+当前签名构建已验证 DevEco Studio 26.0.0 随附工具：Node.js 24.14.1、ohpm 26.0.0.630、hvigor 6.26.8、JBR 25.0.2、HarmonyOS SDK 26.0.0.105（API 26）。工程 target/minimum 均保持 6.0.1(21)。`default/debug` 的 `assembleHap` 和官方 `verify-app` 离线验签通过；未进行设备安装或登录验收。首轮 DevEco 6.0.2 的编译结果保留在 LG-020 历史证据中。
 
 ### 2. 导入工程
 
+在 DevEco Studio 中打开选定源码目录。命令行依赖安装见“构建与运行”。本仓不包含 `hvigorw`，使用 DevEco 的绝对路径。
+
+HarmonyOS 构建要求 `DEVECO_SDK_HOME` 指向 DevEco 的 `Contents/sdk`；当前 hvigor 不从 `local.properties` 读取 HarmonyOS SDK 路径。命令见“构建与运行”。
+
+### 3. 配置 API 与应用凭据
+
+创建本地忽略文件 `entry/src/main/ets/local/Secret.dev.ets`，目录权限 `0700`，文件权限 `0600`。使用受控文件交接真实值，不把凭据贴入聊天、日志或 Git。
+
+| 必需导出 | 来源和要求 |
+| --- | --- |
+| `UNIFIED_BASE_URL_DEV` | 当前 Mac 的局域网 Unified 地址，例如 `http://<LAN_IP>:8080` |
+| `APP_KEY_DEV` | 独立本地 Unified 应用记录的 app key |
+| `APP_PRIVATE_KEY_DEV` | 与该应用公钥配对的 RSA2048 PKCS#8 PEM 私钥 |
+| `PNVS_AUTH_SECRET_DEV` | PNVS HarmonyOS 客户端 SDK 密钥，必须与当前 bundle 和签名方案对应 |
+
+恢复 PNVS 时，将供应商返回的原始 SDK 密钥通过本地编辑器写入 `.local/pnvs-auth-secret.txt`，不包含引号或 `export`，保持目录 `0700`、文件 `0600`。使用同一应用的 bundleName、最终可安装签名 SHA256 和 AppId 核对供应商方案。
+
+通过配置脚本读取已有受保护文件，避免手写密钥字面量：
+
 ```bash
-# 克隆仓库
-git clone <repo-url>
-cd lingai-korea-harmony-app
-
-# 使用 DevEco Studio 打开本目录
-# File → Open → 选择 lingai-korea-harmony-app 根目录
+python3 tools/configure-local.py --unified-local /absolute/path/to/unified/.local --url http://<LAN_IP>:8080
 ```
 
-首次打开时 DevEco 会自动 Sync 并安装依赖到 `oh_modules/`。
+脚本默认在 PNVS 缺失时失败，保留原配置。仅编译检查可显式添加 `--build-only`，此时空 PNVS 会禁用一键登录。脚本核对本地应用编号、文件权限和 RSA 公私钥配对，不输出密钥内容。
 
-### 3. 配置 API 地址
+四项均声明为 `export const <NAME>: string`。无 PNVS 客户端密钥时可明确设置为空字符串，仅用于构建检查；一键登录拒绝初始化和请求，这不代表真实登录已经恢复。服务端 Aliyun AccessKey 不能代替 PNVS 客户端 SDK 密钥。源码中的默认密钥均为空，不提供占位密钥。
 
-编辑 `entry/src/main/ets/utils/Constants.ets`：
-
-```typescript
-// 修改为你的后端服务 IP（手机和 Mac 需在同一 WiFi 网络）
-export const API_BASE_URL: string = 'http://<YOUR_IP>:8000';
-```
+`AUTH_APP_ID` 保持 `1`；本地 Unified 必须在隔离数据库中为该编号登记本地 app key 与公钥，不能冒用旧环境的凭据或关闭验签。`APP_PRIVATE_KEY_DEV` 仅用于当前隔离环境。
 
 ### 4. 签名配置
 
-开发调试签名已配置在 `build-profile.json5` 中（`signingConfigs.default`）。如需更换签名：
+`default` 调试签名使用原应用 `com.lingai.app` / AppId `6917597519602711463`。先在 DevEco 中保存经核验的 `.p12`、证书、debug Profile 和密码配置，再关闭设置窗口，避免 IDE 后续 Apply 覆盖迁移结果。密码由 IDE 生成安全配置，不手工补长、不解密，也不粘贴到终端或聊天。
 
-1. DevEco Studio → File → Project Structure → Signing Configs
-2. 勾选 Automatically generate signature → Apply
+在已忽略的 `.local/signing/`（目录 `0700`）中保存本地配置：
+
+```bash
+python3 tools/configure-signing.py migrate
+python3 tools/configure-signing.py check
+```
+
+迁移工具仅从当前工程的已保存配置读取 `default`，校验原应用身份、Profile 有效期和批准的证书指纹，将完整对象写入 `.local/signing/default.json`（`0600`），然后清空受版本控制文件中 default 的材料值。已有本地配置不会被覆盖；若遇到并发编辑，保留受保护副本并停止，不覆盖新编辑。证书更新需要重新审阅工具中的公开指纹约束。工具不解密密码、不读取 IDE 日志、不安装设备。
+
+构建时必须显式设置 `LINGAI_LOCAL_SIGNING=1`，仅允许 `default` / `debug`，通过 Hvigor 官方配置接口加载本地对象。普通 IDE Sync 不启用注入；不得把 appstore 改绑到 default。每次构建重新核验受保护文件权限、身份、有效期及材料摘要，校验失败就停止。
+
+迁移保留 `release` 原对象和 `appstore -> release` 原引用及其他文件内容。既有 release 密码字段仍在历史及受控文件中，本工具仅隔离本次新 debug 配置，不能把整份文件或历史仓库称为无凭据。不要直接归档工作树、打印签名配置差异或提交 `.local`、`material`、私钥及任何密码配置。源码交付前单独核对暂存范围。
+
+合成测试不会读取真实密码或私钥：
+
+```bash
+python3 -B -m unittest discover -s tools/tests -p 'test_configure_signing.py'
+```
 
 ### 5. 真机调试
 
-1. 手机进入 **设置 → 关于手机 → 连续点击版本号** 开启开发者模式
-2. **设置 → 系统 → 开发者选项 → USB 调试** 开启
-3. USB 连接 Mac 后在 DevEco Studio 点击 **Run**
-4. 确保手机与 Mac 在同一 WiFi 网络（API 地址需使用 Mac 的局域网 IP）
+安装前先核实设备已装 bundle、版本、签名覆盖关系与数据保全方案。构建 HAP 不会自动安装到设备；未经单独确认，不卸载旧 App 或覆盖用户数据。设备经局域网访问 Unified，端口可达不等于真实登录、SSE 或音频已验收。
 
 ---
 
@@ -142,7 +160,7 @@ export const API_BASE_URL: string = 'http://<YOUR_IP>:8000';
 ```
 lingai-korea-harmony-app/
 ├── AppScope/                          # 应用级配置
-│   └── app.json5                      # bundleName: com.lingai.app, 版本: 1.0.0
+│   └── app.json5                      # bundleName: com.lingai.app, 版本: 1.0.1
 ├── entry/                             # 主模块
 │   └── src/main/
 │       ├── ets/                        # 源代码（ArkTS）
@@ -382,13 +400,20 @@ D0（立即）→ D1 → D3 → D7 → D14 → D30
 
 ### 开发调试
 
-```bash
-# 方式一：DevEco Studio
-# 连接真机 / 模拟器后点击 Run 按钮
+先恢复上述受控文件和本地 Unified 配置，再在工程根目录执行：
 
-# 方式二：命令行构建 HAP
-hvigorw assembleHap
+```bash
+export NODE_HOME=/Applications/DevEco-Studio.app/Contents/tools/node
+export JAVA_HOME=/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home
+export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
+export PATH="$NODE_HOME/bin:/Applications/DevEco-Studio.app/Contents/tools/ohpm/bin:$PATH"
+/Applications/DevEco-Studio.app/Contents/tools/ohpm/bin/ohpm install --all --no-save
+LINGAI_LOCAL_SIGNING=1 /Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw --mode module -p module=entry@default -p product=default -p buildMode=debug assembleHap --no-daemon
 ```
+
+依赖安装会写入 `oh_modules/` 和 ohpm 缓存，构建写入 `.hvigor/`、`build/`、`entry/build/` 等忽略目录。安装后核对锁文件差异，不手改生成的锁文件。调试 HAP 通常位于 `entry/build/default/outputs/default/`；核对当次构建退出码和产物摘要后才能作为该源码的构建证据。
+
+登录请求的 `appVersion` 从已安装应用的 bundle 元信息读取，与 `AppScope/app.json5` 保持一致。无 PNVS 密钥时生成的包只验证构建，不用于宣告一键登录恢复或手机功能验收。
 
 ### 构建模式
 
@@ -400,8 +425,8 @@ hvigorw assembleHap
 | 字段        | 值                |
 | ----------- | ----------------- |
 | bundleName  | `com.lingai.app`  |
-| versionName | `1.0.0`           |
-| versionCode | `1000000`         |
+| versionName | `1.0.1`           |
+| versionCode | `1000001`         |
 | 目标设备    | `phone`           |
 
 ### 权限声明
@@ -438,7 +463,7 @@ hvigorw assembleHap
 | 问题                     | 解决方案                                         |
 | ------------------------ | ------------------------------------------------ |
 | API 连接超时             | 确认手机与 Mac 在同一 WiFi，使用 Mac 的局域网 IP |
-| 签名错误                 | DevEco → Project Structure → 重新生成签名        |
+| 签名错误                 | 先核证书、profile、bundle 和设备授权，不自动更换签名        |
 | 白屏或页面不渲染         | 检查 `main_pages.json` 中页面注册是否正确        |
 | TTS 无声音               | 确认 `AudioService.setCacheDir()` 已调用         |
 

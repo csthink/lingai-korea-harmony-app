@@ -5,13 +5,13 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "certpath": "/Users/mars/.ohos/config/default_lingai-korea-harmony-app_XYYlA8tmtvuScBFvCOrPD_UY6AS0N3I96zvjd0UmI6c=.cer",
-          "keyAlias": "debugKey",
-          "keyPassword": "***REMOVED***",
-          "profile": "/Users/mars/.ohos/config/lingai-debug-691759Debug.p7b",
+          "storeFile": "",
+          "storePassword": "",
+          "keyAlias": "",
+          "keyPassword": "",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "/Users/mars/.ohos/config/default_lingai-korea-harmony-app_XYYlA8tmtvuScBFvCOrPD_UY6AS0N3I96zvjd0UmI6c=.p12",
-          "storePassword": "***REMOVED***"
+          "profile": "",
+          "certpath": ""
         }
       },
       {
