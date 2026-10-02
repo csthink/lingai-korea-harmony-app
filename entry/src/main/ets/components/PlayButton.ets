@@ -4,6 +4,7 @@
  * 适配 ArkTS 严格模式
  */
 import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 
 @Component
 export struct PlayButton {
@@ -63,7 +64,7 @@ export struct PlayButton {
         Circle()
           .width(this.buttonSize)
           .height(this.buttonSize)
-          .fill(this.isPlaying ? this.color : this.color + '20')
+          .fill(this.isPlaying ? this.color : UI.BLUE_SOFT)
 
         // 波纹动画（播放时显示）- 与FlashCard一致
         if (this.isPlaying) {
@@ -88,8 +89,9 @@ export struct PlayButton {
         Image($r('app.media.ic_speaker'))
           .width(this.iconBtnSize)
           .height(this.iconBtnSize)
-          .fillColor(this.isPlaying ? '#FFFFFF' : this.color)
+          .fillColor(this.isPlaying ? UI.ON_PRIMARY : this.color)
       }
+      .constraintSize({ minWidth: UI.TOUCH_MIN, minHeight: UI.TOUCH_MIN })
       .onClick(() => {
         this.handleClick();
       })
@@ -152,7 +154,7 @@ export struct PlayIcon {
       Circle()
         .width(this.iconSize + 12)
         .height(this.iconSize + 12)
-        .fill(this.isPlaying ? COLORS.PRIMARY + '30' : 'transparent')
+        .fill(this.isPlaying ? UI.GREEN_SOFT : 'transparent')
 
       // 波纹动画（播放时显示）
       if (this.isPlaying) {
@@ -178,6 +180,7 @@ export struct PlayIcon {
         .height(this.iconSize)
         .fillColor(this.isPlaying ? COLORS.PRIMARY : this.color)
     }
+    .constraintSize({ minWidth: UI.TOUCH_MIN, minHeight: UI.TOUCH_MIN })
     .onClick(() => {
       if (!this.isPlaying) {
         this.startAnimation();

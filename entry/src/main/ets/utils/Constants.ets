@@ -71,32 +71,32 @@ export const QUIZ_TYPE_COLLOCATION_FILL: string = 'collocation_fill';
 // 浅色主题色彩
 export class LightTheme {
   // 背景色
-  static readonly BG_BODY: string = '#f8fafc';
-  static readonly BG_FRAME: string = '#f1f5f9';
-  static readonly GLASS_SURFACE: string = '#ffffff';
-  static readonly GLASS_SURFACE_ALPHA: string = 'rgba(255,255,255,0.95)';
+  static readonly BG_BODY: string = '#F3F9F7';
+  static readonly BG_FRAME: string = '#EAF3F0';
+  static readonly GLASS_SURFACE: string = '#FFFFFF';
+  static readonly GLASS_SURFACE_ALPHA: string = 'rgba(255,255,255,0.98)';
 
   // 文字色
-  static readonly TEXT_MAIN: string = '#0f172a';
-  static readonly TEXT_SUB: string = '#475569';
-  static readonly TEXT_DIM: string = '#94a3b8';
+  static readonly TEXT_MAIN: string = '#173E39';
+  static readonly TEXT_SUB: string = '#506F67';
+  static readonly TEXT_DIM: string = '#627C75';
 
   // 品牌色
-  static readonly PRIMARY: string = '#6366f1';
-  static readonly PRIMARY_LIGHT: string = '#818cf8';
-  static readonly PRIMARY_DARK: string = '#4f46e5';
-  static readonly ACCENT: string = '#06b6d4';
-  static readonly SUCCESS: string = '#10b981';
-  static readonly WARNING: string = '#f59e0b';
-  static readonly ERROR: string = '#f43f5e';
+  static readonly PRIMARY: string = '#137F64';
+  static readonly PRIMARY_LIGHT: string = '#36AC88';
+  static readonly PRIMARY_DARK: string = '#0B614D';
+  static readonly ACCENT: string = '#2C6FD6';
+  static readonly SUCCESS: string = '#137F64';
+  static readonly WARNING: string = '#B67A13';
+  static readonly ERROR: string = '#C84351';
 
   // 边框和阴影
-  static readonly BORDER: string = '#e2e8f0';
-  static readonly GLASS_BORDER: string = 'rgba(0,0,0,0.06)';
-  static readonly CARD_SHADOW: string = '0 8px 24px rgba(148,163,184,0.15)';
+  static readonly BORDER: string = '#D9E8E2';
+  static readonly GLASS_BORDER: string = '#D9E8E2';
+  static readonly CARD_SHADOW: string = '0 4px 16px rgba(23,62,57,0.06)';
 
   // 导航栏
-  static readonly NAV_BG: string = 'rgba(255,255,255,0.9)';
+  static readonly NAV_BG: string = '#FFFFFF';
 }
 
 // 深色主题色彩

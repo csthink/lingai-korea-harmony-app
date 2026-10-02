@@ -4,6 +4,7 @@
  * 适配 ArkTS 严格模式
  */
 import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { WordEntry, ExampleSentence } from '../models/DataModels';
 import promptAction from '@ohos.promptAction';
 
@@ -123,22 +124,34 @@ export struct FlashCard {
   build() {
     Column() {
       Row() {
+        Text('预习卡片')
+          .fontSize(UI.CAPTION_SIZE)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(COLORS.PRIMARY)
+        Blank()
         Text(`${this.index + 1} / ${this.total}`)
-          .fontSize(14)
+          .fontSize(UI.CAPTION_SIZE)
           .fontColor(COLORS.TEXT_SECONDARY)
 
-        Blank()
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 12 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 16 })
+
+      Progress({ value: this.index + 1, total: this.total, type: ProgressType.Linear })
+        .width('88%')
+        .height(4)
+        .color(COLORS.PRIMARY)
+        .backgroundColor(UI.GREEN_SOFT)
+        .margin({ top: 10 })
 
       Stack() {
         // 正面 - 韩文
+        Scroll() {
         Column() {
           // 单词区域 - 只有这部分应用透明度动画
           Column() {
             Text(this.word.hangul)
-              .fontSize(48)
+              .fontSize(52)
               .fontWeight(FontWeight.Bold)
               .fontColor(COLORS.TEXT_PRIMARY)
               .copyOption(CopyOptions.LocalDevice)
@@ -150,7 +163,7 @@ export struct FlashCard {
               .bindSelectionMenu(TextSpanType.TEXT, this.SelectionMenuBuilder, TextResponseType.LONG_PRESS)
 
             Text(this.word.romanization)
-              .fontSize(18)
+              .fontSize(UI.BODY_SIZE)
               .fontColor(COLORS.TEXT_SECONDARY)
               .margin({ top: 8 })
           }
@@ -162,13 +175,13 @@ export struct FlashCard {
             Circle()
               .width(56)
               .height(56)
-              .fill(this.isPlaying ? COLORS.PRIMARY : COLORS.PRIMARY + '20')
+              .fill(this.isPlaying ? UI.BLUE : UI.BLUE_SOFT)
 
             // 喇叭图标
             Image($r('app.media.ic_speaker'))
               .width(28)
               .height(28)
-              .fillColor(this.isPlaying ? '#FFFFFF' : COLORS.PRIMARY)
+              .fillColor(this.isPlaying ? UI.ON_BLUE : UI.BLUE)
           }
           .width(56)
           .height(56)
@@ -186,7 +199,7 @@ export struct FlashCard {
                 .color(COLORS.PRIMARY)
             }
             Text(this.isPlaying ? '播放中...' : '点击喇叭听发音')
-              .fontSize(14)
+              .fontSize(UI.CAPTION_SIZE)
               .fontColor(this.isPlaying ? COLORS.PRIMARY : COLORS.TEXT_HINT)
               .margin({ left: this.isPlaying ? 8 : 0 })
           }
@@ -195,20 +208,21 @@ export struct FlashCard {
           .justifyContent(FlexAlign.Center)
 
           Text('点击卡片查看释义')
-            .fontSize(14)
+            .fontSize(UI.CAPTION_SIZE)
             .fontColor(COLORS.TEXT_HINT)
             .margin({ top: 16 })
           
           // 导航按钮 - 不应用透明度动画
           Row({ space: 16 }) {
             Button('上一个')
-              .type(ButtonType.Capsule)
-              .width(120)
-              .height(44)
-              .backgroundColor(this.index > 0 ? COLORS.SURFACE : '#E0E0E0')
+              .type(ButtonType.Normal)
+              .layoutWeight(1)
+              .height(48)
+              .backgroundColor(this.index > 0 ? UI.BLUE_SOFT : UI.SURFACE_MUTED)
               .fontSize(16)
               .fontColor(this.index > 0 ? COLORS.TEXT_PRIMARY : COLORS.TEXT_HINT)
               .border({ width: 1, color: COLORS.BORDER })
+              .borderRadius(UI.CONTROL_RADIUS)
               .enabled(this.index > 0)
               .onClick(() => {
                 this.isFlipped = false;
@@ -219,12 +233,13 @@ export struct FlashCard {
               })
             
             Button('下一个')
-              .type(ButtonType.Capsule)
-              .width(120)
-              .height(44)
+              .type(ButtonType.Normal)
+              .borderRadius(UI.CONTROL_RADIUS)
+              .layoutWeight(1)
+              .height(48)
               .backgroundColor(COLORS.PRIMARY)
               .fontSize(16)
-              .fontColor('#FFFFFF')
+              .fontColor(UI.ON_PRIMARY)
               .onClick(() => {
                 this.isFlipped = false;
                 this.stopAnimation();
@@ -233,13 +248,20 @@ export struct FlashCard {
                 }
               })
           }
+          .width('100%')
           .margin({ top: 24 })
         }
         .width('100%')
-        .height('100%')
+        .constraintSize({ minHeight: 380 })
+        .padding({ top: 24, bottom: 112 })
         .justifyContent(FlexAlign.Center)
+        }
+        .width('100%')
+        .height('100%')
+        .scrollBar(BarState.Off)
         .visibility(this.isFlipped ? Visibility.Hidden : Visibility.Visible)
         // 背面 - 释义
+        Scroll() {
         Column() {
           // 内容区域 - 应用透明度动画
           Column() {
@@ -256,14 +278,14 @@ export struct FlashCard {
               .bindSelectionMenu(TextSpanType.TEXT, this.SelectionMenuBuilder, TextResponseType.LONG_PRESS)
 
             Text(this.word.primaryMeaning)
-              .fontSize(24)
+              .fontSize(28)
               .fontWeight(FontWeight.Bold)
               .fontColor(COLORS.PRIMARY)
               .margin({ top: 16 })
 
             if (this.word.pos !== '') {
               Text(`[${this.word.pos}]`)
-                .fontSize(14)
+                .fontSize(UI.CAPTION_SIZE)
                 .fontColor(COLORS.TEXT_SECONDARY)
                 .margin({ top: 8 })
             }
@@ -284,23 +306,26 @@ export struct FlashCard {
                   .bindSelectionMenu(TextSpanType.TEXT, this.SelectionMenuBuilder, TextResponseType.LONG_PRESS)
 
                 Text(this.word.examples[0].zh)
-                  .fontSize(14)
+                  .fontSize(UI.CAPTION_SIZE)
                   .fontColor(COLORS.TEXT_SECONDARY)
                   .margin({ top: 4 })
               }
               .width('100%')
               .margin({ top: 24 })
-              .padding({ left: 20, right: 20 })
+              .padding(16)
+              .backgroundColor(UI.SURFACE_MUTED)
+              .borderRadius(UI.CONTROL_RADIUS)
             }
             
             // 收录/取消生词按钮
             Button(this.isAddedToVocab ? '✕ 取消收录' : '📖 收录生词')
-              .type(ButtonType.Capsule)
-              .height(36)
+              .type(ButtonType.Normal)
+              .borderRadius(UI.CONTROL_RADIUS)
+              .height(UI.TOUCH_MIN)
               .padding({ left: 16, right: 16 })
-              .backgroundColor(this.isAddedToVocab ? COLORS.TEXT_SECONDARY + '20' : COLORS.WARNING + '20')
-              .fontColor(this.isAddedToVocab ? COLORS.TEXT_SECONDARY : COLORS.WARNING)
-              .fontSize(14)
+              .backgroundColor(this.isAddedToVocab ? UI.SURFACE_MUTED : UI.GREEN_SOFT)
+              .fontColor(this.isAddedToVocab ? COLORS.TEXT_SECONDARY : COLORS.PRIMARY)
+              .fontSize(UI.CAPTION_SIZE)
               .margin({ top: 20 })
               .onClick(() => {
                 if (this.isAddedToVocab) {
@@ -326,13 +351,14 @@ export struct FlashCard {
           Row({ space: 16 }) {
             // 上一个按钮
             Button('上一个')
-              .type(ButtonType.Capsule)
-              .width(120)
-              .height(44)
-              .backgroundColor(this.index > 0 ? COLORS.SURFACE : '#E0E0E0')
+              .type(ButtonType.Normal)
+              .layoutWeight(1)
+              .height(48)
+              .backgroundColor(this.index > 0 ? UI.BLUE_SOFT : UI.SURFACE_MUTED)
               .fontSize(16)
               .fontColor(this.index > 0 ? COLORS.TEXT_PRIMARY : COLORS.TEXT_HINT)
               .border({ width: 1, color: COLORS.BORDER })
+              .borderRadius(UI.CONTROL_RADIUS)
               .enabled(this.index > 0)
               .onClick(() => {
                 this.isFlipped = false;
@@ -344,12 +370,13 @@ export struct FlashCard {
             
             // 下一个按钮
             Button('下一个')
-              .type(ButtonType.Capsule)
-              .width(120)
-              .height(44)
+              .type(ButtonType.Normal)
+              .borderRadius(UI.CONTROL_RADIUS)
+              .layoutWeight(1)
+              .height(48)
               .backgroundColor(COLORS.PRIMARY)
               .fontSize(16)
-              .fontColor('#FFFFFF')
+              .fontColor(UI.ON_PRIMARY)
               .onClick(() => {
                 this.isFlipped = false;
                 this.stopAnimation();
@@ -358,20 +385,27 @@ export struct FlashCard {
                 }
               })
           }
+          .width('100%')
           .margin({ top: 32 })
         }
         .width('100%')
-        .height('100%')
+        .constraintSize({ minHeight: 380 })
+        .padding({ top: 24, bottom: 112 })
         .justifyContent(FlexAlign.Center)
+        }
+        .width('100%')
+        .height('100%')
+        .scrollBar(BarState.Off)
         .visibility(this.isFlipped ? Visibility.Visible : Visibility.Hidden)
       }
       .width('100%')
       .layoutWeight(1)
-      .margin({ top: 16, left: 16, right: 16 })
-      .padding(24)
+      .margin({ top: 16, left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 24 })
+      .padding(20)
       .backgroundColor(COLORS.SURFACE)
-      .borderRadius(24)
-      .shadow({ radius: 8, color: '#0000001A', offsetY: 4 })
+      .borderRadius(28)
+      .border({ width: 1, color: COLORS.BORDER })
+      .shadow({ radius: 12, color: UI.SHADOW, offsetY: 4 })
       .onClick(() => {
         this.isFlipped = !this.isFlipped;
       })

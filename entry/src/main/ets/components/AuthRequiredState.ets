@@ -1,5 +1,6 @@
 import router from '@ohos.router';
 import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { themeManager } from '../utils/ThemeManager';
 
 class IndexRouteParams {
@@ -69,49 +70,42 @@ export struct AuthRequiredState {
 
   build() {
     Column() {
-      Column() {
-        Image($r('app.media.ic_lock'))
-          .width(34)
-          .height(34)
-          .fillColor(COLORS.PRIMARY)
-      }
-      .width(72)
-      .height(72)
-      .borderRadius(36)
-      .backgroundColor('rgba(99, 102, 241, 0.12)')
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
+      Image($r('app.media.lingai_robot'))
+        .width(112)
+        .height(112)
+        .objectFit(ImageFit.Contain)
 
       Text(this.title)
-        .fontSize(22)
+        .fontSize(26)
         .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .textAlign(TextAlign.Center)
-        .margin({ top: 22 })
+        .margin({ top: 24 })
 
       Text(this.description)
-        .fontSize(14)
-        .lineHeight(22)
+        .fontSize(16)
+        .lineHeight(26)
         .fontColor(COLORS.TEXT_SECONDARY)
         .textAlign(TextAlign.Center)
         .margin({ top: 12 })
 
       Button(this.buttonText)
-        .type(ButtonType.Capsule)
+        .type(ButtonType.Normal)
         .backgroundColor(COLORS.PRIMARY)
-        .fontColor('#ffffff')
+        .fontColor(UI.ON_PRIMARY)
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
-        .height(50)
-        .margin({ top: 26 })
-        .padding({ left: 24, right: 24 })
+        .height(54)
+        .width('100%')
+        .borderRadius(UI.CONTROL_RADIUS)
+        .margin({ top: 30 })
         .onClick(() => {
           void this.goLoginTab();
         })
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 28, right: 28, top: 32, bottom: 32 })
+    .padding({ left: 32, right: 32, top: 32, bottom: 48 })
     .justifyContent(FlexAlign.Center)
     .backgroundColor(COLORS.BACKGROUND)
   }

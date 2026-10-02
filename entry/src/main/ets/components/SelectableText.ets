@@ -6,6 +6,8 @@
 import pasteboard from '@ohos.pasteboard';
 import promptAction from '@ohos.promptAction';
 import ApiService, { ApiError } from '../services/ApiService';
+import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 
 // 操作回调接口
 export interface SelectableTextCallbacks {
@@ -118,17 +120,17 @@ export struct SelectableText {
         Column() {
           Text('译')
             .fontSize(14)
-            .fontColor('#FFFFFF')
+            .fontColor(COLORS.TEXT_PRIMARY)
           Text('翻译')
-            .fontSize(10)
-            .fontColor('#CCCCCC')
+            .fontSize(11)
+            .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 2 })
         }
         .width(48)
-        .height(52)
+        .height(56)
         .justifyContent(FlexAlign.Center)
-        .backgroundColor(this.showTranslation ? '#4A4A4A' : '#333333')
-        .borderRadius(8)
+        .backgroundColor(this.showTranslation ? UI.GREEN_SOFT : UI.BLUE_SOFT)
+        .borderRadius(12)
         .onClick(() => {
           this.translateSelectedText();
         })
@@ -138,15 +140,15 @@ export struct SelectableText {
           Text('🔊')
             .fontSize(16)
           Text('朗读')
-            .fontSize(10)
-            .fontColor('#CCCCCC')
+            .fontSize(11)
+            .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 2 })
         }
         .width(48)
-        .height(52)
+        .height(56)
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#333333')
-        .borderRadius(8)
+        .backgroundColor(UI.BLUE_SOFT)
+        .borderRadius(12)
         .margin({ left: 6 })
         .onClick(() => {
           if (this.isSelectionValid()) {
@@ -161,15 +163,15 @@ export struct SelectableText {
           Text('📋')
             .fontSize(16)
           Text('复制')
-            .fontSize(10)
-            .fontColor('#CCCCCC')
+            .fontSize(11)
+            .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 2 })
         }
         .width(48)
-        .height(52)
+        .height(56)
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#333333')
-        .borderRadius(8)
+        .backgroundColor(UI.BLUE_SOFT)
+        .borderRadius(12)
         .margin({ left: 6 })
         .onClick(() => {
           this.copyToClipboard(this.selectedText.trim());
@@ -180,15 +182,15 @@ export struct SelectableText {
           Text('📚')
             .fontSize(16)
           Text('生词')
-            .fontSize(10)
-            .fontColor('#CCCCCC')
+            .fontSize(11)
+            .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 2 })
         }
         .width(48)
-        .height(52)
+        .height(56)
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#333333')
-        .borderRadius(8)
+        .backgroundColor(UI.BLUE_SOFT)
+        .borderRadius(12)
         .margin({ left: 6 })
         .onClick(() => {
           if (this.isSelectionValid()) {
@@ -203,15 +205,15 @@ export struct SelectableText {
           Text('🔍')
             .fontSize(16)
           Text('详解')
-            .fontSize(10)
-            .fontColor('#CCCCCC')
+            .fontSize(11)
+            .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 2 })
         }
         .width(48)
-        .height(52)
+        .height(56)
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#333333')
-        .borderRadius(8)
+        .backgroundColor(UI.BLUE_SOFT)
+        .borderRadius(12)
         .margin({ left: 6 })
         .onClick(() => {
           if (this.isSelectionValid()) {
@@ -227,7 +229,7 @@ export struct SelectableText {
         Column() {
           Text(this.translateResult)
             .fontSize(14)
-            .fontColor('#FFFFFF')
+            .fontColor(COLORS.TEXT_PRIMARY)
             .fontWeight(FontWeight.Medium)
             .textAlign(TextAlign.Center)
             .maxLines(3)
@@ -236,14 +238,15 @@ export struct SelectableText {
         .width(270) // 5个按钮宽度: 48*5 + 6*4 = 264, 加padding
         .padding({ top: 10, bottom: 6, left: 12, right: 12 })
         .margin({ top: 8 })
-        .backgroundColor('#3A3A3A')
-        .borderRadius(8)
+        .backgroundColor(UI.GREEN_SOFT)
+        .borderRadius(12)
       }
     }
     .padding(8)
-    .backgroundColor('#222222')
-    .borderRadius(12)
-    .shadow({ radius: 8, color: '#00000060', offsetY: 4 })
+    .backgroundColor(COLORS.SURFACE)
+    .borderRadius(UI.CONTROL_RADIUS)
+    .border({ width: 1, color: COLORS.BORDER })
+    .shadow({ radius: 12, color: UI.SHADOW, offsetY: 4 })
   }
 
   build() {
@@ -251,6 +254,7 @@ export struct SelectableText {
       .fontSize(this.fontSize)
       .fontColor(this.fontColor)
       .fontWeight(this.fontWeight)
+      .lineHeight(this.fontSize * 1.5)
       .copyOption(CopyOptions.InApp)
       .onTextSelectionChange((start: number, end: number) => {
         if (start >= 0 && end > start && end <= this.text.length) {

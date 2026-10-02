@@ -4,6 +4,7 @@
  * 适配 ArkTS 严格模式
  */
 import { COLORS, API_BASE_URL, BIZ_API_PREFIX } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { WordEntry, DictAIResponse, DictSearchResponse, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample, UserInfo } from '../models/DataModels';
 import { WordCard } from './WordCard';
 import { PlayButton, PlayIcon } from './PlayButton';
@@ -1245,17 +1246,18 @@ export struct DictContent {
       Row() {
         Row() {
           Image($r('app.media.ic_dict'))
-            .width(20)
-            .height(20)
-            .fillColor(COLORS.TEXT_HINT)
-            .margin({ left: 12 })
+            .width(22)
+            .height(22)
+            .fillColor(UI.BLUE)
+            .margin({ left: 16 })
 
           TextInput({ text: this.searchText, placeholder: '输入中文或韩文搜索', controller: this.textInputController })
             .layoutWeight(1)
-            .height(44)
+            .height(52)
             .backgroundColor('transparent')
             .padding({ left: 8, right: 8 })
             .fontSize(16)
+            .fontColor(COLORS.TEXT_PRIMARY)
             .placeholderColor(COLORS.TEXT_HINT)
             .onChange((value: string) => {
               this.onSearchTextChange(value);
@@ -1275,16 +1277,19 @@ export struct DictContent {
               }, 200);
             })
 
-          // 搜索按钮 - 放大镜图标
+          // 搜索按钮
           Button() {
-            Text('🔍')
-              .fontSize(18)
+            Text('搜索')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(UI.ON_BLUE)
           }
-          .type(ButtonType.Circle)
-          .width(36)
-          .height(36)
-          .backgroundColor(this.searchText.trim().length > 0 ? COLORS.PRIMARY : COLORS.TEXT_HINT)
-          .margin({ right: 4 })
+          .type(ButtonType.Normal)
+          .width(56)
+          .height(UI.TOUCH_MIN)
+          .borderRadius(14)
+          .backgroundColor(this.searchText.trim().length > 0 ? UI.BLUE : COLORS.TEXT_HINT)
+          .margin({ right: 6 })
           .enabled(this.searchText.trim().length > 0)
           .onClick(() => {
             // 隐藏键盘并执行搜索
@@ -1300,8 +1305,8 @@ export struct DictContent {
                 .fillColor(COLORS.TEXT_HINT)
             }
             .type(ButtonType.Circle)
-            .width(32)
-            .height(32)
+            .width(UI.TOUCH_MIN)
+            .height(UI.TOUCH_MIN)
             .backgroundColor('transparent')
             .margin({ right: 4 })
             .onClick(() => {
@@ -1310,13 +1315,13 @@ export struct DictContent {
           }
         }
         .width('100%')
-        .height(44)
+        .height(56)
         .backgroundColor(COLORS.SURFACE)
-        .borderRadius(22)
-        .border({ width: 1, color: COLORS.BORDER })
+        .borderRadius(UI.CONTROL_RADIUS)
+        .border({ width: 1, color: UI.BLUE_SOFT })
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 42, bottom: 8 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 12 })
 
       this.DictQuotaBanner()
 
@@ -1325,12 +1330,14 @@ export struct DictContent {
         Column() {
           Row() {
             Text('搜索历史')
-              .fontSize(12)
-              .fontColor(COLORS.TEXT_HINT)
+              .fontSize(UI.CAPTION_SIZE)
+              .fontColor(COLORS.TEXT_SECONDARY)
             Blank()
             Text('清空')
               .fontSize(12)
               .fontColor(COLORS.PRIMARY)
+              .constraintSize({ minWidth: UI.TOUCH_MIN, minHeight: UI.TOUCH_MIN })
+              .textAlign(TextAlign.Center)
               .onClick(() => {
                 this.searchHistory = [];
                 this.saveSearchHistory();
@@ -1351,8 +1358,8 @@ export struct DictContent {
                 .layoutWeight(1)
             }
             .width('100%')
-            .height(40)
-            .padding({ left: 12, right: 12 })
+            .height(48)
+            .padding({ left: 16, right: 16 })
             .onClick(() => {
               this.onHistoryItemClick(item);
             })
@@ -1360,9 +1367,10 @@ export struct DictContent {
         }
         .width('100%')
         .backgroundColor(COLORS.SURFACE)
-        .borderRadius(8)
-        .margin({ left: 16, right: 16 })
-        .shadow({ radius: 4, color: '#1A000000', offsetY: 2 })
+        .borderRadius(UI.CONTROL_RADIUS)
+        .margin({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
+        .border({ width: 1, color: COLORS.BORDER })
+        .shadow({ radius: 8, color: UI.SHADOW, offsetY: 2 })
       }
 
       // 浏览历史导航条
@@ -1413,7 +1421,7 @@ export struct DictContent {
             this.RecentWordsSection()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 8 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12, bottom: 192 })
           .alignItems(HorizontalAlign.Start)
         }
         .width('100%')
@@ -1451,17 +1459,17 @@ export struct DictContent {
               Row() {
                 Text(this.resultDirection === 'ko2zh' ? '韩 → 中' : '中 → 韩')
                   .fontSize(12)
-                  .fontColor(COLORS.TEXT_SECONDARY)
-                  .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-                  .backgroundColor(COLORS.BORDER)
-                  .borderRadius(4)
+                  .fontColor(UI.BLUE)
+                  .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                  .backgroundColor(UI.BLUE_SOFT)
+                  .borderRadius(10)
 
                 if (this.resultSource === 'ai') {
                   Row() {
-                    Image($r('app.media.ic_ai'))
-                      .width(12)
-                      .height(12)
-                      .fillColor(COLORS.SECONDARY)
+                    Image($r('app.media.lingai_robot'))
+                      .width(20)
+                      .height(20)
+                      .objectFit(ImageFit.Contain)
 
                     Text('AI 结果')
                       .fontSize(12)
@@ -1485,8 +1493,8 @@ export struct DictContent {
                         .margin({ left: 4 })
                     }
                   }
-                  .height(28)
-                  .backgroundColor(this.isInVocabulary ? '#E8F8E8' : '#E8F4FD')
+                  .height(UI.TOUCH_MIN)
+                  .backgroundColor(this.isInVocabulary ? UI.GREEN_SOFT : UI.BLUE_SOFT)
                   .borderRadius(14)
                   .padding({ left: 10, right: 10 })
                   .onClick(async () => {
@@ -1514,7 +1522,7 @@ export struct DictContent {
                   .fontColor(COLORS.TEXT_HINT)
               }
               .width('100%')
-              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+              .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 8, bottom: 12 })
             }
 
             // Local results
@@ -1532,7 +1540,7 @@ export struct DictContent {
                   }
                 })
               }
-              .padding({ left: 16, right: 16, top: 8 })
+              .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12 })
             })
 
             // AI supplement (always show when available)
@@ -1540,12 +1548,12 @@ export struct DictContent {
               Column() {
                 this.AISupplementCard()
               }
-              .padding({ left: 16, right: 16, top: 8 })
+              .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12 })
             }
 
             // Bottom spacing
             Row()
-              .height(128)
+              .height(192)
           }
           .width('100%')
         }
@@ -1599,31 +1607,33 @@ export struct DictContent {
 
   @Builder
   FavoritesCard() {
-    // 蓝紫渐变收藏卡片
+    // 收藏概览
     Row() {
       // 左侧图标
       Column() {
         Image($r('app.media.ic_bookmark'))
           .width(32)
           .height(32)
-          .fillColor('#FFFFFF')
+          .fillColor(COLORS.PRIMARY)
       }
-      .width(48)
-      .height(48)
-      .backgroundColor('rgba(255,255,255,0.2)')
-      .borderRadius(12)
+      .width(56)
+      .height(56)
+      .backgroundColor(COLORS.SURFACE)
+      .borderRadius(18)
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Center)
 
       // 中间文字
       Column() {
         Text(this.favoriteCount.toString())
-          .fontSize(20)
+          .fontSize(36)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#FFFFFF')
+          .fontColor(UI.BLUE)
         Text('收藏单词')
-          .fontSize(14)
-          .fontColor('rgba(255,255,255,0.9)')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(COLORS.TEXT_PRIMARY)
+          .margin({ top: 2 })
       }
       .alignItems(HorizontalAlign.Start)
       .margin({ left: 16 })
@@ -1631,18 +1641,15 @@ export struct DictContent {
       Blank()
 
       // 右箭头
-      Text('>')
-        .fontSize(20)
-        .fontColor('rgba(255,255,255,0.8)')
+      Text('›')
+        .fontSize(28)
+        .fontColor(COLORS.PRIMARY)
     }
     .width('100%')
-    .height(80)
+    .height(112)
     .padding({ left: 20, right: 20 })
-    .linearGradient({
-      direction: GradientDirection.Right,
-      colors: [['#6366f1', 0], ['#8b5cf6', 1]]
-    })
-    .borderRadius(20)
+    .backgroundColor(UI.GREEN_SOFT)
+    .borderRadius(UI.CARD_RADIUS)
     .margin({ top: 3 })  // 距离搜索框的间距
     .onClick(() => {
       this.showFavoritesPage = true;
@@ -1654,7 +1661,7 @@ export struct DictContent {
     Row() {
       Column() {
         Text('今日免费查词额度')
-          .fontSize(12)
+          .fontSize(UI.CAPTION_SIZE)
           .fontColor(COLORS.TEXT_SECONDARY)
 
         Text(this.dictQuotaSummary())
@@ -1664,8 +1671,9 @@ export struct DictContent {
           .margin({ top: 4 })
 
         Text(this.dictQuotaCaption())
-          .fontSize(11)
+          .fontSize(12)
           .fontColor(COLORS.TEXT_HINT)
+          .lineHeight(18)
           .margin({ top: 6 })
       }
       .alignItems(HorizontalAlign.Start)
@@ -1680,11 +1688,10 @@ export struct DictContent {
         .borderRadius(999)
     }
     .width('100%')
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .margin({ left: 16, right: 16, bottom: 8 })
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(18)
-    .border({ width: 1, color: 'rgba(99, 102, 241, 0.08)' })
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .margin({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 8 })
+    .backgroundColor(UI.BLUE_SOFT)
+    .borderRadius(UI.CONTROL_RADIUS)
   }
 
   @Builder
@@ -1692,8 +1699,8 @@ export struct DictContent {
     Column() {
       // 标题
       Text('最近添加')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
+        .fontSize(19)
+        .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .margin({ bottom: 12 })
         .alignSelf(ItemAlign.Start)  // 标题左对齐
@@ -1704,21 +1711,26 @@ export struct DictContent {
           Column() {
             Row() {
               Text(word.hangul)
-                .fontSize(18)
-                .fontWeight(FontWeight.Medium)
+                .fontSize(22)
+                .fontWeight(FontWeight.Bold)
                 .fontColor(COLORS.TEXT_PRIMARY)
-              Text(' (' + word.roman + ')')
-                .fontSize(14)
-                .fontColor(COLORS.TEXT_SECONDARY)
             }
+            Text(word.roman)
+              .fontSize(UI.CAPTION_SIZE)
+              .fontColor(UI.BLUE)
+              .margin({ top: 3 })
             Text(word.meaning)
-              .fontSize(14)
+              .fontSize(UI.BODY_SIZE)
               .fontColor(COLORS.TEXT_SECONDARY)
-              .margin({ top: 4 })
+              .lineHeight(23)
+              .margin({ top: 8 })
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
-          .padding({ top: 8, bottom: 8 })
+          .padding(16)
+          .backgroundColor(COLORS.SURFACE)
+          .borderRadius(UI.CONTROL_RADIUS)
+          .margin({ bottom: 10 })
           .onClick(() => {
             this.detailWord = word.hangul;
             this.searchText = word.hangul;
@@ -1744,11 +1756,10 @@ export struct DictContent {
         Row() {
           Button('查看更多 ▼')
             .type(ButtonType.Capsule)
-            .height(36)
-            .backgroundColor('transparent')
-            .fontColor(COLORS.TEXT_SECONDARY)
+            .height(UI.TOUCH_MIN)
+            .backgroundColor(UI.BLUE_SOFT)
+            .fontColor(UI.BLUE)
             .fontSize(14)
-            .border({ width: 1, color: COLORS.BORDER })
             .onClick(() => {
               if (this.recentWords.length < this.favoriteCount) {
                 // 还有更多，加载更多
@@ -1766,7 +1777,7 @@ export struct DictContent {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)  // 内容左对齐
-    .margin({ top: 20 })
+    .margin({ top: UI.SECTION_GAP })
   }
 
   private dictQuotaSummary(): string {
@@ -1801,16 +1812,16 @@ export struct DictContent {
 
   private dictQuotaBadgeTextColor(): string {
     if (this.userInfo.dailyDictLimit > 0 && this.userInfo.dailyDictRemaining <= 0) {
-      return '#b91c1c';
+      return UI.DANGER_TEXT;
     }
     return COLORS.PRIMARY;
   }
 
   private dictQuotaBadgeBackground(): string {
     if (this.userInfo.dailyDictLimit > 0 && this.userInfo.dailyDictRemaining <= 0) {
-      return 'rgba(239, 68, 68, 0.12)';
+      return UI.DANGER_SOFT;
     }
-    return 'rgba(99, 102, 241, 0.12)';
+    return UI.GREEN_SOFT;
   }
 
   @Builder
@@ -1819,21 +1830,24 @@ export struct DictContent {
       // 顶部导航
       Row() {
         Image($r('app.media.ic_back'))
-          .width(24)
-          .height(24)
-          .fillColor(COLORS.TEXT_PRIMARY)
+          .width(UI.TOUCH_MIN)
+          .height(UI.TOUCH_MIN)
+          .padding(10)
+          .fillColor(UI.BLUE)
+          .backgroundColor(UI.BLUE_SOFT)
+          .borderRadius(UI.CONTROL_RADIUS)
           .onClick(() => {
             this.showFavoritesPage = false;
           })
         Text('收藏单词')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
+          .fontSize(UI.TITLE_SIZE)
+          .fontWeight(FontWeight.Bold)
           .fontColor(COLORS.TEXT_PRIMARY)
-          .margin({ left: 16 })
+          .margin({ left: 12 })
         Blank()
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 42, bottom: 10 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 20 })
 
       // 收藏列表
       Scroll() {
@@ -1842,27 +1856,27 @@ export struct DictContent {
             Row() {
               Column() {
                 Text(word.hangul)
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Medium)
+                  .fontSize(22)
+                  .fontWeight(FontWeight.Bold)
                   .fontColor(COLORS.TEXT_PRIMARY)
                 Text(word.meaning)
                   .fontSize(14)
                   .fontColor(COLORS.TEXT_SECONDARY)
-                  .margin({ top: 4 })
+                  .lineHeight(22)
+                  .margin({ top: 6 })
               }
               .alignItems(HorizontalAlign.Start)
               .layoutWeight(1)
 
-              Text('>')
-                .fontSize(18)
-                .fontColor(COLORS.PRIMARY)
+              Text('›')
+                .fontSize(26)
+                .fontColor(UI.BLUE)
             }
             .width('100%')
-            .padding(16)
+            .padding(20)
             .backgroundColor(COLORS.SURFACE)
-            .borderRadius(12)
-            .margin({ bottom: 8 })
-            .border({ width: 1, color: COLORS.BORDER })
+            .borderRadius(UI.CARD_RADIUS)
+            .margin({ bottom: 12 })
             .onClick(() => {
               this.showFavoritesPage = false;
               this.detailWord = word.hangul;
@@ -1872,7 +1886,7 @@ export struct DictContent {
           })
         }
         .width('100%')
-        .padding({ left: 16, right: 16 })
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 192 })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
@@ -1902,16 +1916,17 @@ export struct DictContent {
               Text(word)
                 .fontSize(13)
                 .fontColor(index === this.currentHistoryIndex
-                  ? '#FFFFFF'
+                  ? UI.ON_PRIMARY
                   : (themeManager.isDark() ? '#cbd5e1' : COLORS.TEXT_SECONDARY))
                 .backgroundColor(index === this.currentHistoryIndex
                   ? COLORS.PRIMARY
                   : (themeManager.isDark() ? 'rgba(148,163,184,0.18)' : COLORS.BORDER))
                 .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-                .borderRadius(18)
+                .textAlign(TextAlign.Center)
+                .borderRadius(14)
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .constraintSize({ maxWidth: 100 })
+                .constraintSize({ maxWidth: 100, minHeight: UI.TOUCH_MIN })
                 .onClick(() => {
                   this.onBrowseHistoryClick(word, index);
                 })
@@ -1931,9 +1946,9 @@ export struct DictContent {
           .margin({ left: 6 })
       }
       .width('100%')
-      .height(44)
-      .padding({ left: 14, right: 14 })
-      .backgroundColor(COLORS.SURFACE)
+      .height(56)
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
+      .backgroundColor(COLORS.BACKGROUND)
     }
   }
 
@@ -1946,31 +1961,33 @@ export struct DictContent {
           LoadingProgress()
             .width(20)
             .height(20)
-            .color('#FFFFFF')
+            .color(UI.BLUE)
           Text('翻译中...')
             .fontSize(14)
-            .fontColor('#FFFFFF')
+            .fontColor(COLORS.TEXT_PRIMARY)
             .margin({ left: 8 })
         }
       } else {
         Column() {
           // 原词
           Text(this.translateWord)
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#FFFFFF')
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(COLORS.TEXT_PRIMARY)
           
           // 翻译结果
           Text(this.translateResult)
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-            .margin({ top: 4 })
+            .fontColor(COLORS.PRIMARY)
+            .lineHeight(24)
+            .margin({ top: 8 })
           
           // 查看详解链接
-          Text('点击查看AI详解 →')
-            .fontSize(12)
-            .fontColor('#E0E0E0')
+          Text('查看 AI 详解')
+            .fontSize(13)
+            .fontColor(UI.BLUE)
+            .constraintSize({ minHeight: UI.TOUCH_MIN })
             .margin({ top: 8 })
             .onClick(() => {
               this.viewAIDetail();
@@ -1979,32 +1996,45 @@ export struct DictContent {
         .alignItems(HorizontalAlign.Start)
       }
     }
-    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .backgroundColor('rgba(0, 0, 0, 0.85)')
-    .borderRadius(12)
-    .shadow({ radius: 8, color: '#00000040', offsetY: 4 })
+    .padding(20)
+    .backgroundColor(COLORS.SURFACE)
+    .border({ width: 1, color: UI.BLUE_SOFT })
+    .borderRadius(UI.CARD_RADIUS)
+    .shadow({ radius: 12, color: UI.SHADOW, offsetY: 4 })
   }
 
   @Builder
   AISupplementCard() {
     Column() {
+      Row({ space: 8 }) {
+        Image($r('app.media.lingai_robot'))
+          .width(28)
+          .height(28)
+          .objectFit(ImageFit.Contain)
+        Text('AI 词典')
+          .fontSize(UI.CAPTION_SIZE)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(UI.BLUE)
+      }
+      .width('100%')
+      .margin({ bottom: 16 })
       // 标题栏：搜索词 + 词性 + 播放按钮
       Row() {
         Column() {
-          Row() {
+          Column({ space: 8 }) {
             Text(this.searchText.trim())
-              .fontSize(28)
+              .fontSize(32)
               .fontWeight(FontWeight.Bold)
               .fontColor(COLORS.TEXT_PRIMARY)
+              .width('100%')
 
             if (this.aiSupplement !== null && this.aiSupplement.wordType !== '') {
               Text(this.aiSupplement.wordType)
                 .fontSize(12)
-                .fontColor(COLORS.TEXT_SECONDARY)
-                .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-                .backgroundColor(COLORS.BORDER)
-                .borderRadius(4)
-                .margin({ left: 8 })
+                .fontColor(UI.BLUE)
+                .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+                .backgroundColor(UI.BLUE_SOFT)
+                .borderRadius(8)
             }
             
             // 流式加载指示器
@@ -2019,14 +2049,15 @@ export struct DictContent {
                   .fontColor(COLORS.PRIMARY)
                   .margin({ left: 4 })
               }
-              .margin({ left: 8 })
             }
           }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
 
           // 汉字（如果有）
           if (this.aiSupplement !== null && this.aiSupplement.hanja !== '') {
             Text(`汉字: ${this.aiSupplement.hanja}`)
-              .fontSize(14)
+              .fontSize(15)
               .fontColor(COLORS.TEXT_SECONDARY)
               .margin({ top: 4 })
           }
@@ -2055,6 +2086,7 @@ export struct DictContent {
           .fontSize(22)
           .fontWeight(FontWeight.Medium)
           .fontColor(COLORS.PRIMARY)
+          .lineHeight(30)
           .width('100%')
           .margin({ top: 16 })
       }
@@ -2066,47 +2098,48 @@ export struct DictContent {
 
       // 词语构成
       if (this.aiSupplement !== null && this.aiSupplement.composition !== '') {
-        this.SectionCard('📚 词语构成', this.aiSupplement.composition)
+        this.SectionCard('词语构成', this.aiSupplement.composition)
       }
 
       // 含义详解
       if (this.aiSupplement !== null && this.aiSupplement.meanings.length > 0) {
         Column() {
-          Text('📖 含义详解')
-            .fontSize(15)
+          Text('含义详解')
+            .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_PRIMARY)
             .width('100%')
 
           ForEach(this.aiSupplement.meanings, (meaning: MeaningDetail, index: number) => {
-            Row() {
+            Column({ space: 8 }) {
               Text(`${index + 1}. [${meaning.type}]`)
-                .fontSize(13)
+                .fontSize(14)
                 .fontColor(COLORS.SECONDARY)
                 .fontWeight(FontWeight.Medium)
+                .width('100%')
 
               Text(meaning.explanation)
-                .fontSize(14)
+                .fontSize(15)
                 .fontColor(COLORS.TEXT_PRIMARY)
-                .margin({ left: 8 })
-                .layoutWeight(1)
+                .width('100%')
             }
             .width('100%')
-            .margin({ top: 8 })
+            .alignItems(HorizontalAlign.Start)
+            .margin({ top: 16 })
           })
         }
         .width('100%')
-        .padding(12)
-        .margin({ top: 12 })
-        .backgroundColor(COLORS.BACKGROUND)
-        .borderRadius(8)
+        .padding(16)
+        .margin({ top: 16 })
+        .backgroundColor('transparent')
+        .borderRadius(0)
       }
 
       // 常用搭配
       if (this.aiSupplement !== null && this.aiSupplement.collocations.length > 0) {
         Column() {
-          Text('🔗 常用搭配')
-            .fontSize(15)
+          Text('常用搭配')
+            .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_PRIMARY)
             .width('100%')
@@ -2117,11 +2150,13 @@ export struct DictContent {
               Row() {
                 SelectableText({
                   text: coll.phrase,
-                  fontSize: 14,
+                  fontSize: 17,
                   fontColor: this.getLightCardMainTextColor(),
                   fontWeight: FontWeight.Medium,
                   callbacks: this.getSelectableCallbacks()
                 })
+
+                  .layoutWeight(1)
 
                 PlayIcon({
                   text: coll.phrase,
@@ -2139,7 +2174,7 @@ export struct DictContent {
 
               // 第二行：含义
               Text(coll.meaning)
-                .fontSize(13)
+                .fontSize(14)
                 .fontColor(this.getLightCardSecondaryTextColor())
                 .width('100%')
                 .margin({ top: 4 })
@@ -2157,22 +2192,22 @@ export struct DictContent {
             .width('100%')
             .padding(10)
             .margin({ top: 8 })
-            .backgroundColor('#F5F5F5')
-            .borderRadius(6)
+            .backgroundColor(UI.SURFACE_MUTED)
+            .borderRadius(12)
           })
         }
         .width('100%')
-        .padding(12)
-        .margin({ top: 12 })
-        .backgroundColor(COLORS.BACKGROUND)
-        .borderRadius(8)
+        .padding(16)
+        .margin({ top: 16 })
+        .backgroundColor('transparent')
+        .borderRadius(0)
       }
 
       // 例句（分场景）
       if (this.aiSupplement !== null && this.aiSupplement.aiExamples.length > 0) {
         Column() {
-          Text('📝 例句')
-            .fontSize(15)
+          Text('例句')
+            .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_PRIMARY)
             .width('100%')
@@ -2182,11 +2217,11 @@ export struct DictContent {
               Row() {
                 if (example.category !== '') {
                   Text(example.category)
-                    .fontSize(11)
-                    .fontColor('#FFFFFF')
+                    .fontSize(12)
+                    .fontColor(UI.ON_BLUE)
                     .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                    .backgroundColor(COLORS.SECONDARY)
-                    .borderRadius(4)
+                    .backgroundColor(UI.BLUE)
+                    .borderRadius(8)
                 }
 
                 Blank()
@@ -2204,7 +2239,7 @@ export struct DictContent {
 
               SelectableText({
                 text: example.ko,
-                fontSize: 15,
+                fontSize: 18,
                 fontColor: this.getLightCardMainTextColor(),
                 callbacks: this.getSelectableCallbacks()
               })
@@ -2212,30 +2247,30 @@ export struct DictContent {
                 .margin({ top: 6 })
 
               Text(example.zh)
-                .fontSize(13)
+                .fontSize(14)
                 .fontColor(this.getLightCardSecondaryTextColor())
                 .margin({ top: 4 })
                 .width('100%')
             }
             .width('100%')
-            .padding(12)
+            .padding(16)
             .margin({ top: 8 })
-            .backgroundColor('#FAFAFA')
-            .borderRadius(8)
+            .backgroundColor(UI.BLUE_SOFT)
+            .borderRadius(14)
           })
         }
         .width('100%')
-        .padding(12)
-        .margin({ top: 12 })
-        .backgroundColor(COLORS.BACKGROUND)
-        .borderRadius(8)
+        .padding(16)
+        .margin({ top: 16 })
+        .backgroundColor('transparent')
+        .borderRadius(0)
       }
 
       // 近义词（含区别说明）
       if (this.aiSupplement !== null && this.aiSupplement.synonyms.length > 0) {
         Column() {
-          Text('📗 近义词')
-            .fontSize(15)
+          Text('近义词')
+            .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_PRIMARY)
             .width('100%')
@@ -2245,9 +2280,10 @@ export struct DictContent {
               // 第一行：词语和播放按钮
               Row() {
                 Text(syn.word)
-                  .fontSize(14)
+                  .fontSize(15)
                   .fontColor(this.getLightCardMainTextColor())
                   .fontWeight(FontWeight.Medium)
+                  .layoutWeight(1)
 
                 PlayIcon({
                   text: syn.word,
@@ -2265,7 +2301,7 @@ export struct DictContent {
 
               // 第二行：含义
               Text(syn.meaning)
-                .fontSize(13)
+                .fontSize(14)
                 .fontColor(this.getLightCardSecondaryTextColor())
                 .width('100%')
                 .margin({ top: 4 })
@@ -2282,8 +2318,8 @@ export struct DictContent {
             .width('100%')
             .padding(10)
             .margin({ top: 6 })
-            .backgroundColor('#F0FFF0')
-            .borderRadius(6)
+            .backgroundColor(UI.GREEN_SOFT)
+            .borderRadius(12)
             .alignItems(HorizontalAlign.Start)
           })
         }
@@ -2294,8 +2330,8 @@ export struct DictContent {
       // 反义词
       if (this.aiSupplement !== null && this.aiSupplement.antonyms.length > 0) {
         Column() {
-          Text('📕 反义词')
-            .fontSize(15)
+          Text('反义词')
+            .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_PRIMARY)
             .width('100%')
@@ -2304,13 +2340,15 @@ export struct DictContent {
             ForEach(this.aiSupplement.antonyms, (ant: RelatedWord) => {
               Row() {
                 Text(ant.word)
-                  .fontSize(13)
+                  .fontSize(14)
                   .fontColor(this.getLightCardMainTextColor())
+                  .layoutWeight(1)
 
                 Text(ant.meaning)
                   .fontSize(12)
                   .fontColor(this.getLightCardHintTextColor())
                   .margin({ left: 4 })
+                  .layoutWeight(1)
 
                 PlayIcon({
                   text: ant.word,
@@ -2322,10 +2360,11 @@ export struct DictContent {
                 })
                   .margin({ left: 4 })
               }
+              .width('100%')
               .padding({ left: 10, right: 10, top: 6, bottom: 6 })
               .margin({ right: 8, top: 8 })
-              .backgroundColor('#FFF0F0')
-              .borderRadius(8)
+              .backgroundColor(UI.SURFACE_MUTED)
+              .borderRadius(12)
             })
           }
           .width('100%')
@@ -2337,8 +2376,8 @@ export struct DictContent {
       // 扩展词汇
       if (this.aiSupplement !== null && this.aiSupplement.relatedWords.length > 0) {
         Column() {
-          Text('📘 扩展词汇')
-            .fontSize(15)
+          Text('扩展词汇')
+            .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_PRIMARY)
             .width('100%')
@@ -2347,13 +2386,15 @@ export struct DictContent {
             ForEach(this.aiSupplement.relatedWords, (rel: RelatedWord) => {
               Row() {
                 Text(rel.word)
-                  .fontSize(13)
+                  .fontSize(14)
                   .fontColor(this.getLightCardMainTextColor())
+                  .layoutWeight(1)
 
                 Text(rel.meaning)
                   .fontSize(12)
                   .fontColor(this.getLightCardHintTextColor())
                   .margin({ left: 4 })
+                  .layoutWeight(1)
 
                 PlayIcon({
                   text: rel.word,
@@ -2365,10 +2406,11 @@ export struct DictContent {
                 })
                   .margin({ left: 4 })
               }
+              .width('100%')
               .padding({ left: 10, right: 10, top: 6, bottom: 6 })
               .margin({ right: 8, top: 8 })
-              .backgroundColor('#F0F0FF')
-              .borderRadius(8)
+              .backgroundColor(UI.BLUE_SOFT)
+              .borderRadius(12)
             })
           }
           .width('100%')
@@ -2380,51 +2422,52 @@ export struct DictContent {
       // 实用知识/提示
       if (this.aiSupplement !== null && this.aiSupplement.tips !== '') {
         Row() {
-          Image($r('app.media.ic_ai'))
-            .width(16)
-            .height(16)
-            .fillColor(COLORS.SECONDARY)
+          Image($r('app.media.lingai_robot'))
+            .width(28)
+            .height(28)
+            .objectFit(ImageFit.Contain)
 
           Text(this.aiSupplement.tips)
-            .fontSize(13)
+            .fontSize(14)
             .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ left: 8 })
             .layoutWeight(1)
         }
         .width('100%')
-        .padding(12)
+        .padding(16)
         .margin({ top: 16 })
-        .backgroundColor(COLORS.SECONDARY + '15')
-        .borderRadius(8)
+        .backgroundColor(UI.GREEN_SOFT)
+        .borderRadius(UI.CONTROL_RADIUS)
       }
     }
     .width('100%')
-    .padding(16)
+    .padding(UI.PAGE_INSET)
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(16)
-    .shadow({ radius: 4, color: '#0000000A', offsetY: 2 })
+    .borderRadius(UI.CARD_RADIUS)
+    .border({ width: 1, color: COLORS.BORDER })
+    .shadow({ radius: 6, color: UI.SHADOW, offsetY: 2 })
   }
 
   @Builder
   SectionCard(title: string, content: string) {
     Column() {
       Text(title)
-        .fontSize(15)
+        .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .fontColor(COLORS.TEXT_PRIMARY)
         .width('100%')
 
       Text(content)
-        .fontSize(14)
+        .fontSize(15)
         .fontColor(COLORS.TEXT_SECONDARY)
         .width('100%')
         .margin({ top: 8 })
     }
     .width('100%')
-    .padding(12)
-    .margin({ top: 12 })
-    .backgroundColor(COLORS.BACKGROUND)
-    .borderRadius(8)
+    .padding(16)
+    .margin({ top: 16 })
+    .backgroundColor(UI.SURFACE_MUTED)
+    .borderRadius(UI.CONTROL_RADIUS)
   }
 
   @Builder
@@ -2473,12 +2516,12 @@ export struct DictContent {
       Row() {
         Button('取消')
           .type(ButtonType.Normal)
-          .backgroundColor(COLORS.BORDER)
+          .backgroundColor(UI.SURFACE_MUTED)
           .fontColor(COLORS.TEXT_PRIMARY)
           .fontSize(16)
           .height(44)
           .layoutWeight(1)
-          .borderRadius(8)
+          .borderRadius(UI.CONTROL_RADIUS)
           .onClick(() => {
             this.showAddDialog = false;
             this.selectedWord = null;
@@ -2487,11 +2530,11 @@ export struct DictContent {
         Button('确认添加')
           .type(ButtonType.Normal)
           .backgroundColor(COLORS.PRIMARY)
-          .fontColor('#FFFFFF')
+          .fontColor(UI.ON_PRIMARY)
           .fontSize(16)
           .height(44)
           .layoutWeight(1)
-          .borderRadius(8)
+          .borderRadius(UI.CONTROL_RADIUS)
           .margin({ left: 12 })
           .onClick(() => {
             this.confirmAddToWordbook();
@@ -2503,7 +2546,7 @@ export struct DictContent {
     .width('85%')
     .padding(24)
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(16)
+    .borderRadius(UI.CARD_RADIUS)
     .position({ x: '7.5%', y: '35%' })
     .zIndex(101)
   }

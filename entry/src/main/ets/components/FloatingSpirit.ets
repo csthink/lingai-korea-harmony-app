@@ -3,6 +3,7 @@
  * 右下角固定悬浮，点击触发对话面板
  */
 import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 
 @Component
 export struct FloatingSpirit {
@@ -46,28 +47,40 @@ export struct FloatingSpirit {
       // 外圈光晕
       if (!this.subtle) {
         Circle()
-          .width(64)
-          .height(64)
-          .fill('rgba(88, 86, 214, 0.2)')
+          .width(72)
+          .height(72)
+          .fill(UI.GREEN_SOFT)
           .scale({ x: this.breathScale, y: this.breathScale })
       }
       
       // 主按钮
       Button() {
-        Text('🧚')
-          .fontSize(this.subtle ? 24 : 28)
+        Column({ space: 0 }) {
+          Image($r('app.media.lingai_robot'))
+            .width(this.subtle ? 32 : 38)
+            .height(this.subtle ? 32 : 38)
+            .objectFit(ImageFit.Contain)
+          Text('AI')
+            .fontSize(10)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(UI.BLUE)
+        }
       }
-      .width(this.subtle ? 48 : 56)
-      .height(this.subtle ? 48 : 56)
-      .type(ButtonType.Circle)
-      .backgroundColor(COLORS.PRIMARY)
+      .width(this.subtle ? 52 : 64)
+      .height(this.subtle ? 52 : 64)
+      .type(ButtonType.Normal)
+      .backgroundColor(COLORS.SURFACE)
+      .border({ width: 1, color: UI.GREEN_SOFT })
+      // border() 会重置默认圆角，显式圆角必须在它之后设置。
+      .borderRadius(this.subtle ? 18 : 22)
+      .clip(true)
       .shadow({
         radius: this.subtle ? 8 : 12,
-        color: this.subtle ? 'rgba(88, 86, 214, 0.18)' : 'rgba(88, 86, 214, 0.4)',
+        color: UI.SHADOW,
         offsetX: 0,
         offsetY: this.subtle ? 2 : 4
       })
-      .opacity(this.subtle ? 0.78 : 1)
+      .opacity(this.subtle ? 0.94 : 1)
       .scale({ x: this.isPressed ? 0.9 : 1.0, y: this.isPressed ? 0.9 : 1.0 })
       .animation({ duration: 100 })
       .onTouch((event: TouchEvent) => {

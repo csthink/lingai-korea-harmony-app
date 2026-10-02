@@ -2,7 +2,6 @@
  * 主题管理器
  * 管理应用的浅色/深色模式切换和持久化
  */
-import preferences from '@ohos.data.preferences';
 import { LightTheme, DarkTheme, setRuntimeDarkMode } from './Constants';
 
 // 全局主题状态管理
@@ -34,46 +33,31 @@ export class ThemeManager {
   }
 
   /**
-   * 初始化主题（从持久化存储读取）
+   * 本轮暂时停用深色主题，所有入口统一使用浅色。
+   * 保留 theme_settings/is_dark_mode 原偏好数据，恢复功能时再读取。
    */
   async init(context: Context): Promise<void> {
-    try {
-      const pref = await preferences.getPreferences(context, ThemeManager.PREF_NAME);
-      const isDark = await pref.get(ThemeManager.KEY_IS_DARK, false) as boolean;
-      globalTheme.isDarkMode = isDark;
-      setRuntimeDarkMode(isDark);
-      this.notifyListeners();
-    } catch (e) {
-      console.error('ThemeManager: Failed to init theme:', JSON.stringify(e));
-      globalTheme.isDarkMode = false;
-      setRuntimeDarkMode(false);
-      this.notifyListeners();
-    }
+    globalTheme.isDarkMode = false;
+    setRuntimeDarkMode(false);
+    this.notifyListeners();
   }
 
   /**
    * 切换主题
    */
   async toggleTheme(context: Context): Promise<boolean> {
-    const newValue = !globalTheme.isDarkMode;
-    await this.setDarkMode(context, newValue);
-    return newValue;
+    await this.setDarkMode(context, false);
+    return false;
   }
 
   /**
    * 设置深色模式
    */
   async setDarkMode(context: Context, isDark: boolean): Promise<void> {
-    globalTheme.isDarkMode = isDark;
-    setRuntimeDarkMode(isDark);
+    // 保留公开接口，暂不切换或覆盖旧偏好。
+    globalTheme.isDarkMode = false;
+    setRuntimeDarkMode(false);
     this.notifyListeners();
-    try {
-      const pref = await preferences.getPreferences(context, ThemeManager.PREF_NAME);
-      await pref.put(ThemeManager.KEY_IS_DARK, isDark);
-      await pref.flush();
-    } catch (e) {
-      console.error('ThemeManager: Failed to save theme:', JSON.stringify(e));
-    }
   }
 
   /**

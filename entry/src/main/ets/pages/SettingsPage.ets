@@ -4,6 +4,8 @@
  */
 import router from '@ohos.router';
 import { WORDS_PER_LESSON } from '../utils/Constants';
+import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { globalTheme, themeManager } from '../utils/ThemeManager';
 import preferences from '@ohos.data.preferences';
 import ApiService from '../services/ApiService';
@@ -59,7 +61,7 @@ struct SettingsPage {
   async handleThemeToggle(isOn: boolean) {
     if (!this.isInitialized) return;
     if (!this.context) return;
-    
+
     const newDarkMode = !isOn;
     if (newDarkMode !== this.isDarkMode) {
       this.isDarkMode = newDarkMode;
@@ -76,28 +78,28 @@ struct SettingsPage {
         Row() {
           Text('←')
             .fontSize(18)
-            .fontColor(themeManager.textMain)
+            .fontColor(COLORS.TEXT_PRIMARY)
         }
-        .width(40)
-        .height(40)
-        .borderRadius(20)
-        .backgroundColor(themeManager.glassSurface)
+        .width(UI.TOUCH_MIN)
+        .height(UI.TOUCH_MIN)
+        .borderRadius(15)
+        .backgroundColor(COLORS.SURFACE)
         .justifyContent(FlexAlign.Center)
-        .shadow({ radius: 4, color: 'rgba(0,0,0,0.08)', offsetY: 2 })
+        .border({ width: 1, color: COLORS.BORDER })
         .onClick(() => {
           router.back();
         })
 
         Text('设置')
-          .fontSize(20)
+          .fontSize(26)
           .fontWeight(FontWeight.Bold)
-          .fontColor(themeManager.textMain)
+          .fontColor(COLORS.TEXT_PRIMARY)
           .margin({ left: 16 })
 
         Blank()
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 42, bottom: 16 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 20 })
 
       if (this.isLoading) {
         Column() {
@@ -111,53 +113,43 @@ struct SettingsPage {
       } else {
         Scroll() {
           Column() {
-            // ========== 外观区块 ==========
-            Text('外观')
-              .fontSize(14)
-              .fontColor(themeManager.textSub)
-              .width('100%')
-              .padding({ left: 4, bottom: 12 })
-
-            // 浅色模式卡片
+            // ========== 学习设置区块 ==========
             Row() {
-              Text('⚙')
-                .fontSize(18)
-              Text('浅色模式')
-                .fontSize(16)
-                .fontColor(themeManager.textMain)
-                .margin({ left: 12 })
-
-              Blank()
-
-              Toggle({ type: ToggleType.Switch, isOn: this.isLightModeOn })
-                .selectedColor('#6366f1')
-                .switchPointColor('#ffffff')
-                .onChange((isOn: boolean) => {
-                  this.handleThemeToggle(isOn);
-                })
+              Column({ space: 6 }) {
+                Text('学习节奏')
+                  .fontSize(20)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(COLORS.TEXT_PRIMARY)
+                Text('选择适合自己的每关单词数')
+                  .fontSize(14)
+                  .fontColor(COLORS.TEXT_SECONDARY)
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+              Image($r('app.media.lingai_robot'))
+                .width(56)
+                .height(56)
+                .objectFit(ImageFit.Contain)
             }
             .width('100%')
-            .padding(20)
-            .backgroundColor(themeManager.glassSurface)
-            .borderRadius(16)
-            .shadow({ radius: 8, color: this.isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(148,163,184,0.12)', offsetY: 2 })
-            .margin({ bottom: 24 })
+            .padding({ bottom: 20 })
 
-            // ========== 学习设置区块 ==========
             Text('学习设置')
               .fontSize(14)
-              .fontColor(themeManager.textSub)
+              .fontColor(COLORS.TEXT_SECONDARY)
               .width('100%')
               .padding({ left: 4, bottom: 12 })
 
             // 每关单词数卡片
             Column() {
               Row() {
-                Text('📚')
-                  .fontSize(18)
+                Image($r('app.media.ic_study'))
+                  .width(22)
+                  .height(22)
+                  .fillColor(COLORS.PRIMARY)
                 Text('每关单词数')
                   .fontSize(16)
-                  .fontColor(themeManager.textMain)
+                  .fontColor(COLORS.TEXT_PRIMARY)
                   .margin({ left: 12 })
 
                 Blank()
@@ -165,7 +157,7 @@ struct SettingsPage {
                 Text(`${this.wordsPerLesson}`)
                   .fontSize(16)
                   .fontWeight(FontWeight.Medium)
-                  .fontColor(themeManager.textMain)
+                  .fontColor(COLORS.TEXT_PRIMARY)
               }
               .width('100%')
 
@@ -176,9 +168,9 @@ struct SettingsPage {
                 step: 10,
                 style: SliderStyle.OutSet
               })
-                .blockColor('#6366f1')
-                .trackColor(themeManager.border)
-                .selectedColor('#6366f1')
+                .blockColor(COLORS.PRIMARY)
+                .trackColor(COLORS.BORDER)
+                .selectedColor(COLORS.PRIMARY)
                 .width('100%')
                 .margin({ top: 16 })
                 .onChange((value: number) => {
@@ -189,20 +181,20 @@ struct SettingsPage {
               Row() {
                 Text('10')
                   .fontSize(12)
-                  .fontColor(themeManager.textDim)
+                  .fontColor(COLORS.TEXT_HINT)
                 Blank()
                 Text('100')
                   .fontSize(12)
-                  .fontColor(themeManager.textDim)
+                  .fontColor(COLORS.TEXT_HINT)
               }
               .width('100%')
               .margin({ top: 4 })
             }
             .width('100%')
-            .padding(20)
-            .backgroundColor(themeManager.glassSurface)
-            .borderRadius(16)
-            .shadow({ radius: 8, color: this.isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(148,163,184,0.12)', offsetY: 2 })
+            .padding(22)
+            .backgroundColor(COLORS.SURFACE)
+            .borderRadius(UI.CARD_RADIUS)
+            .shadow({ radius: 8, color: UI.SHADOW, offsetY: 2 })
             .margin({ bottom: 32 })
 
             // ========== 退出登录按钮 - 浅粉色背景 ==========
@@ -210,14 +202,14 @@ struct SettingsPage {
               Text('退出登录')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor('#f43f5e')
+                .fontColor(UI.DANGER_TEXT)
             }
             .width('100%')
             .height(54)
             .justifyContent(FlexAlign.Center)
-            .backgroundColor(this.isDarkMode ? 'rgba(244, 63, 94, 0.12)' : '#fef2f2')
+            .backgroundColor(UI.DANGER_SOFT)
             .borderRadius(20)
-            .border({ width: 1, color: this.isDarkMode ? '#f43f5e' : '#fecaca' })
+            .border({ width: 1, color: UI.DANGER_SOFT })
             .margin({ bottom: 40 })
             .onClick(() => {
               AlertDialog.show({
@@ -246,7 +238,7 @@ struct SettingsPage {
             })
           }
           .width('100%')
-          .padding({ left: 20, right: 20, bottom: 110 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 32 })
         }
         .layoutWeight(1)
         .width('100%')
@@ -258,7 +250,7 @@ struct SettingsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(themeManager.bgBody)
+    .backgroundColor(COLORS.BACKGROUND)
   }
 
   @Builder
@@ -270,27 +262,34 @@ struct SettingsPage {
       this.BottomTabItem('我的', $r('app.media.ic_mine'), 3)
     }
     .width('100%')
-    .height(74)
-    .padding({ bottom: 14 })
-    .backgroundColor(themeManager.navBg)
-    .border({ width: 1, color: themeManager.glassBorder })
+    .height(UI.NAV_HEIGHT)
+    .padding({ left: 8, right: 8, top: 6, bottom: 16 })
+    .backgroundColor(COLORS.SURFACE)
+    .border({ width: { top: 1 }, color: COLORS.BORDER })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
-    .translate({ y: 8 })
+
   }
 
   @Builder
   BottomTabItem(title: string, icon: Resource, index: number) {
     Column() {
-      Image(icon)
-        .width(24)
-        .height(24)
-        .fillColor(this.currentTabIndex === index ? '#6366f1' : themeManager.textDim)
+      Row() {
+        Image(icon)
+          .width(22)
+          .height(22)
+          .fillColor(this.currentTabIndex === index ? COLORS.PRIMARY : COLORS.TEXT_HINT)
+      }
+      .width(54)
+      .height(32)
+      .justifyContent(FlexAlign.Center)
+      .borderRadius(12)
+      .backgroundColor(this.currentTabIndex === index ? UI.GREEN_SOFT : Color.Transparent)
 
       Text(title)
-        .fontSize(11)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.currentTabIndex === index ? '#6366f1' : themeManager.textDim)
-        .margin({ top: 6 })
+        .fontSize(12)
+        .fontWeight(this.currentTabIndex === index ? FontWeight.Bold : FontWeight.Medium)
+        .fontColor(this.currentTabIndex === index ? COLORS.PRIMARY : COLORS.TEXT_HINT)
+        .margin({ top: 4 })
     }
     .layoutWeight(1)
     .height('100%')

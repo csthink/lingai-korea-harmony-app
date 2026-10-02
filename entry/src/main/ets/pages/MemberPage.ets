@@ -1,5 +1,6 @@
 import router from '@ohos.router';
 import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { UserInfo } from '../models/DataModels';
 import ApiService from '../services/ApiService';
 import { themeManager } from '../utils/ThemeManager';
@@ -85,7 +86,7 @@ struct MemberPage {
             this.ProPreviewCard()
           }
           .width('100%')
-          .padding({ left: 20, right: 20, top: 12, bottom: 36 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 8, bottom: 36 })
         }
         .layoutWeight(1)
         .width('100%')
@@ -101,15 +102,19 @@ struct MemberPage {
   Header() {
     Row() {
       Image($r('app.media.ic_back'))
-        .width(24)
-        .height(24)
+        .width(UI.TOUCH_MIN)
+        .height(UI.TOUCH_MIN)
+        .padding(10)
+        .backgroundColor(COLORS.SURFACE)
+        .borderRadius(15)
+        .border({ width: 1, color: COLORS.BORDER })
         .fillColor(COLORS.TEXT_PRIMARY)
         .onClick(() => {
           router.back();
         })
 
       Text('会员详情')
-        .fontSize(20)
+        .fontSize(26)
         .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .margin({ left: 16 })
@@ -117,63 +122,51 @@ struct MemberPage {
       Blank()
     }
     .width('100%')
-    .padding({ left: 20, right: 20, top: 50, bottom: 12 })
+    .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 20 })
   }
 
   @Builder
   CurrentMemberCard() {
-    Column() {
+    Column({ space: 18 }) {
       Row() {
-        Column() {
+        Column({ space: 6 }) {
           Text('当前会员')
-            .fontSize(14)
+            .fontSize(13)
             .fontColor(COLORS.TEXT_SECONDARY)
-
           Text(this.userInfo.memberLevelLabel)
             .fontSize(28)
             .fontWeight(FontWeight.Bold)
             .fontColor(COLORS.TEXT_PRIMARY)
-            .margin({ top: 6 })
+          Text(this.currentName())
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(COLORS.PRIMARY)
         }
         .alignItems(HorizontalAlign.Start)
-
-        Blank()
-
-        Text('已注册')
-          .fontSize(12)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#ffffff')
-          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-          .backgroundColor(COLORS.PRIMARY)
-          .borderRadius(999)
+        .layoutWeight(1)
+        Image($r('app.media.lingai_robot'))
+          .width(76)
+          .height(76)
+          .objectFit(ImageFit.Contain)
       }
       .width('100%')
 
-      Text(this.currentName())
-        .fontSize(18)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(COLORS.TEXT_PRIMARY)
-        .width('100%')
-        .margin({ top: 20 })
-
       Text('试运行阶段，基础会员可使用学习、词典、生词本与学习统计，并按当日额度解锁。')
         .fontSize(14)
-        .lineHeight(22)
+        .lineHeight(23)
         .fontColor(COLORS.TEXT_SECONDARY)
         .width('100%')
-        .margin({ top: 8 })
     }
     .width('100%')
-    .padding(22)
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(24)
-    .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+    .padding(24)
+    .backgroundColor(UI.GREEN_SOFT)
+    .borderRadius(UI.CARD_RADIUS)
   }
 
   @Builder
   TodayQuotaCard() {
     Column({ space: 14 }) {
-      Text('今日基础会员额度')
+      Text('今日可用额度')
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
@@ -211,7 +204,7 @@ struct MemberPage {
     .padding(22)
     .backgroundColor(COLORS.SURFACE)
     .borderRadius(24)
-    .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder
@@ -223,40 +216,39 @@ struct MemberPage {
         .fontColor(COLORS.TEXT_PRIMARY)
         .width('100%')
 
-      this.BenefitItem('学习路径解锁', '基础会员每日可学习 2 关，支持智能复习')
-      this.BenefitItem('词典与收藏', '基础会员每日可免费查询 50 个词，支持生词本与最近添加')
-      this.BenefitItem('小语灵助手', '基础会员每日可向 AI 助手提问 10 次，同一问题短时间重复提问不重复扣减')
-      this.BenefitItem('学习统计', '同步查看任务进度与连续学习情况')
+      this.BenefitItem('学习路径解锁', '学习关卡与智能复习，每日额度见上方')
+      this.BenefitItem('词典与收藏', '查询韩语词条，收藏生词与查看最近添加')
+      this.BenefitItem('小语灵助手', '提问与韩语学习相关的问题，每日额度见上方')
+      this.BenefitItem('学习统计', '查看本机任务进度与连续学习情况')
       this.BenefitItem('账号同步', '登录后同步你的基础学习身份')
     }
     .width('100%')
     .padding(22)
     .backgroundColor(COLORS.SURFACE)
     .borderRadius(24)
-    .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder
   ProPreviewCard() {
-    Column() {
-      Row() {
-        Text('👑')
-          .fontSize(22)
-
+    Column({ space: 14 }) {
+      Row({ space: 10 }) {
+        Image($r('app.media.ic_study'))
+          .width(24)
+          .height(24)
+          .fillColor(UI.BLUE)
         Text('LingAI Pro 即将上线')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#ffffff')
-          .margin({ left: 10 })
+          .fontColor(COLORS.TEXT_PRIMARY)
       }
       .width('100%')
 
-      Text('当前版本先不开放购买与付费提醒。后续正式开放时，我们会在这里更新权益与开通方式。')
+      Text('当前版本暂不开放购买与付费提醒。正式开放后，这里会更新权益与开通方式。')
         .fontSize(14)
-        .lineHeight(22)
-        .fontColor('rgba(255,255,255,0.88)')
+        .lineHeight(23)
+        .fontColor(COLORS.TEXT_SECONDARY)
         .width('100%')
-        .margin({ top: 14 })
 
       Column({ space: 10 }) {
         this.ProPreviewItem('更完整的会员权益说明与专属入口')
@@ -264,16 +256,11 @@ struct MemberPage {
         this.ProPreviewItem('后续统一会员体系接入')
       }
       .width('100%')
-      .margin({ top: 18 })
     }
     .width('100%')
     .padding(22)
-    .borderRadius(24)
-    .linearGradient({
-      angle: 90,
-      colors: [['#4f46e5', 0], ['#818cf8', 1]],
-    })
-    .shadow({ radius: 18, color: 'rgba(79, 70, 229, 0.28)', offsetY: 8 })
+    .borderRadius(UI.CARD_RADIUS)
+    .backgroundColor(UI.BLUE_SOFT)
   }
 
   @Builder
@@ -282,7 +269,7 @@ struct MemberPage {
       Text('✓')
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#10b981')
+        .fontColor(COLORS.PRIMARY)
 
       Column() {
         Text(title)
@@ -311,11 +298,11 @@ struct MemberPage {
     Row() {
       Text('•')
         .fontSize(16)
-        .fontColor('#ffffff')
+        .fontColor(UI.BLUE)
 
       Text(text)
         .fontSize(14)
-        .fontColor('#ffffff')
+        .fontColor(UI.BLUE)
         .margin({ left: 8 })
     }
     .width('100%')

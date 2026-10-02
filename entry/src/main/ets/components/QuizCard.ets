@@ -4,6 +4,7 @@
  * 适配 ArkTS 严格模式
  */
 import { COLORS, QUIZ_TYPE_BASIC_RECOGNITION, QUIZ_TYPE_CONTEXT_SENSE, QUIZ_TYPE_CONFUSION_WORDS, QUIZ_TYPE_COLLOCATION_FILL } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { Quiz, QuizOption } from '../models/DataModels';
 
 @Component
@@ -20,106 +21,118 @@ export struct QuizCard {
 
   build() {
     Column() {
-      Row() {
-        Text(this.getQuizTypeLabel())
-          .fontSize(12)
-          .fontColor(COLORS.PRIMARY)
-          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .backgroundColor(COLORS.PRIMARY + '20')
-          .borderRadius(4)
+      Scroll() {
+        Column() {
+          Row() {
+            Text(this.getQuizTypeLabel())
+              .fontSize(UI.CAPTION_SIZE)
+              .fontColor(COLORS.PRIMARY)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .backgroundColor(UI.GREEN_SOFT)
+              .borderRadius(10)
+          }
+          .width('100%')
+
+          Column() {
+            Text(this.quiz.stem.display)
+              .fontSize(38)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(COLORS.TEXT_PRIMARY)
+              .textAlign(TextAlign.Center)
+
+            if (this.quiz.context !== '') {
+              Text(this.quiz.context)
+                .fontSize(UI.BODY_SIZE)
+                .fontColor(COLORS.TEXT_SECONDARY)
+                .margin({ top: 12 })
+                .textAlign(TextAlign.Center)
+            }
+          }
+          .width('100%')
+          .padding({ left: 20, right: 20, top: 32, bottom: 32 })
+          .margin({ top: 16 })
+          .backgroundColor(COLORS.SURFACE)
+          .borderRadius(UI.CARD_RADIUS)
+          .border({ width: 1, color: COLORS.BORDER })
+
+          Column({ space: 12 }) {
+            ForEach(this.quiz.options, (option: QuizOption) => {
+              this.OptionButton(option)
+            })
+          }
+          .width('100%')
+          .margin({ top: 24 })
+        }
+        .width('100%')
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 20, bottom: 20 })
       }
       .width('100%')
+      .layoutWeight(1)
+      .clipContent(ContentClipMode.CONTENT_ONLY)
+      .scrollBar(BarState.Off)
 
       Column() {
-        Text(this.quiz.stem.display)
-          .fontSize(32)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
-          .textAlign(TextAlign.Center)
+        // 答错时显示反馈（答对时直接跳过，不显示这个区域）
+        if (this.showResult) {
+          Column() {
 
-        if (this.quiz.context !== '') {
-          Text(this.quiz.context)
-            .fontSize(16)
-            .fontColor(COLORS.TEXT_SECONDARY)
-            .margin({ top: 12 })
-            .textAlign(TextAlign.Center)
-        }
-      }
-      .width('100%')
-      .padding(24)
-      .margin({ top: 16 })
-      .backgroundColor(COLORS.SURFACE)
-      .borderRadius(16)
-
-      Column({ space: 12 }) {
-        ForEach(this.quiz.options, (option: QuizOption) => {
-          this.OptionButton(option)
-        })
-      }
-      .width('100%')
-      .margin({ top: 24 })
-
-      // 答错时显示反馈（答对时直接跳过，不显示这个区域）
-      if (this.showResult) {
-        Column() {
-
-          Button('继续')
-            .type(ButtonType.Capsule)
-            .width('100%')
-            .height(48)
-            .backgroundColor(COLORS.PRIMARY)
-            .fontSize(16)
-            .fontColor('#FFFFFF')
-            .onClick(() => {
-              this.resetState();
-              if (this.onNext) {
-                this.onNext();
-              }
-            })
-        }
-        .width('100%')
-        .padding(16)
-        .margin({ top: 24 })
-      } else {
-        // 确认按钮始终显示
-        Column() {
-          if (this.showHint) {
-            Text('请先选择一个答案')
-              .fontSize(14)
-              .fontColor(COLORS.WARNING)
-              .margin({ bottom: 8 })
+            Button('继续')
+              .type(ButtonType.Normal)
+              .borderRadius(UI.CONTROL_RADIUS)
+              .width('100%')
+              .height(52)
+              .backgroundColor(COLORS.PRIMARY)
+              .fontSize(UI.BODY_SIZE)
+              .fontColor(UI.ON_PRIMARY)
+              .onClick(() => {
+                this.resetState();
+                if (this.onNext) {
+                  this.onNext();
+                }
+              })
           }
-          Button('确认')
-            .type(ButtonType.Capsule)
-            .width('100%')
-            .height(48)
-            .backgroundColor(this.selectedOption !== '' ? COLORS.PRIMARY : COLORS.BORDER)
-            .fontSize(16)
-            .fontColor(this.selectedOption !== '' ? '#FFFFFF' : COLORS.TEXT_SECONDARY)
-            .onClick(() => {
-              if (this.selectedOption === '') {
-                this.showHint = true;
-              } else {
-                this.showHint = false;
-                this.checkAnswer();
-              }
-            })
+          .width('100%')
+        } else {
+          // 确认按钮始终显示
+          Column() {
+            if (this.showHint) {
+              Text('请先选择一个答案')
+                .fontSize(UI.CAPTION_SIZE)
+                .fontColor(COLORS.WARNING)
+                .margin({ bottom: 8 })
+            }
+            Button('确认')
+              .type(ButtonType.Normal)
+              .borderRadius(UI.CONTROL_RADIUS)
+              .width('100%')
+              .height(52)
+              .backgroundColor(this.selectedOption !== '' ? COLORS.PRIMARY : COLORS.BORDER)
+              .fontSize(UI.BODY_SIZE)
+              .fontColor(this.selectedOption !== '' ? UI.ON_PRIMARY : COLORS.TEXT_SECONDARY)
+              .onClick(() => {
+                if (this.selectedOption === '') {
+                  this.showHint = true;
+                } else {
+                  this.showHint = false;
+                  this.checkAnswer();
+                }
+              })
+          }
+          .width('100%')
         }
-        .width('100%')
-        .padding(16)
-        .margin({ top: 24 })
       }
+      .width('100%')
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12, bottom: 16 })
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 16, right: 16, top: 16, bottom: 24 })
   }
 
   @Builder
   OptionButton(option: QuizOption) {
     Row() {
       Text(option.id)
-        .fontSize(16)
+        .fontSize(UI.BODY_SIZE)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.getOptionLetterColor(option))
         .width(32)
@@ -129,7 +142,7 @@ export struct QuizCard {
         .backgroundColor(this.getOptionBgColor(option))
 
       Text(option.text)
-        .fontSize(16)
+        .fontSize(UI.BODY_SIZE)
         .fontColor(this.getOptionTextColor(option))
         .margin({ left: 12 })
         .layoutWeight(1)
@@ -147,10 +160,10 @@ export struct QuizCard {
       }
     }
     .width('100%')
-    .height(56)
-    .padding({ left: 12, right: 16 })
+    .constraintSize({ minHeight: 60 })
+    .padding({ left: 14, right: 16, top: 12, bottom: 12 })
     .backgroundColor(this.getOptionCardBg(option))
-    .borderRadius(12)
+    .borderRadius(UI.CONTROL_RADIUS)
     .border({
       width: 2,
       color: this.getOptionBorderColor(option),
@@ -177,10 +190,10 @@ export struct QuizCard {
 
   getOptionLetterColor(option: QuizOption): string {
     if (!this.showResult) {
-      return this.selectedOption === option.id ? '#FFFFFF' : COLORS.TEXT_SECONDARY;
+      return this.selectedOption === option.id ? UI.ON_PRIMARY : COLORS.TEXT_SECONDARY;
     }
-    if (option.isCorrect) return '#FFFFFF';
-    if (this.selectedOption === option.id) return '#FFFFFF';
+    if (option.isCorrect) return UI.ON_PRIMARY;
+    if (this.selectedOption === option.id) return UI.ON_PRIMARY;
     return COLORS.TEXT_SECONDARY;
   }
 
@@ -201,8 +214,8 @@ export struct QuizCard {
 
   getOptionCardBg(option: QuizOption): string {
     if (!this.showResult) return COLORS.SURFACE;
-    if (option.isCorrect) return COLORS.SUCCESS + '10';
-    if (this.selectedOption === option.id) return COLORS.ERROR + '10';
+    if (option.isCorrect) return UI.GREEN_SOFT;
+    if (this.selectedOption === option.id) return UI.DANGER_SOFT;
     return COLORS.SURFACE;
   }
 

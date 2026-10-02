@@ -5,6 +5,7 @@
  */
 import { router } from '@kit.ArkUI';
 import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { DailyTask } from '../models/DataModels';
 import TaskTrackingService from '../services/TaskTrackingService';
 import ApiService, { ApiError, PhoneAuthStatus } from '../services/ApiService';
@@ -388,6 +389,26 @@ export struct ProfileContent {
       Column() {
         Scroll() {
           Column({ space: 20 }) {
+            Row() {
+              Column({ space: 6 }) {
+                Text('我的学习')
+                  .fontSize(UI.TITLE_SIZE)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(COLORS.TEXT_PRIMARY)
+                Text('今天也向韩语更近一点')
+                  .fontSize(14)
+                  .fontColor(COLORS.TEXT_SECONDARY)
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+              Image($r('app.media.lingai_robot'))
+                .width(64)
+                .height(64)
+                .objectFit(ImageFit.Contain)
+            }
+            .width('100%')
+            .margin({ bottom: 4 })
+
             // 用户信息卡片
             this.UserCard()
 
@@ -409,10 +430,12 @@ export struct ProfileContent {
             this.MenuList()
           }
           .width('100%')
-          .padding({ left: 24, right: 24, top: 0, bottom: 120 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 0, bottom: 192 })
         }
         .width('100%')
         .layoutWeight(1)
+        .margin({ top: UI.CONTENT_TOP })
+        .clipContent(ContentClipMode.CONTENT_ONLY)
         .scrollBar(BarState.Off)
       }
       .width('100%')
@@ -464,64 +487,67 @@ export struct ProfileContent {
 
   @Builder
   UserCard() {
-    Row() {
-      // 头像（带皇冠标识）
-      Stack({ alignContent: Alignment.BottomEnd }) {
-        Column() {
-          Image($r('app.media.ic_mine'))
-            .width(28)
-            .height(28)
-            .fillColor(COLORS.TEXT_SECONDARY)
-        }
-        .width(64)
-        .height(64)
-        .borderRadius(32)
-        .backgroundColor('#f1f5f9')
-        .justifyContent(FlexAlign.Center)
-
-        // Pro会员皇冠标识
-        if (this.isPro) {
+    Column({ space: 18 }) {
+      Row() {
+        Stack({ alignContent: Alignment.BottomEnd }) {
           Column() {
-            Text('👑')
-              .fontSize(12)
+            Image($r('app.media.ic_mine'))
+              .width(26)
+              .height(26)
+              .fillColor(COLORS.PRIMARY)
           }
-          .width(22)
-          .height(22)
-          .borderRadius(11)
-          .backgroundColor('#f59e0b')
+          .width(60)
+          .height(60)
+          .borderRadius(20)
+          .backgroundColor(COLORS.SURFACE)
           .justifyContent(FlexAlign.Center)
-          .border({ width: 2, color: '#ffffff' })
+
+          if (this.isPro) {
+            Text('Pro')
+              .fontSize(11)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(UI.WARM)
+              .padding({ left: 7, right: 7, top: 4, bottom: 4 })
+              .backgroundColor(UI.WARM_SOFT)
+              .borderRadius(8)
+          }
         }
+
+        Column({ space: 6 }) {
+          Text(this.userName)
+            .fontSize(19)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(COLORS.TEXT_PRIMARY)
+            .maxLines(2)
+          Text(this.userStatus)
+            .fontSize(13)
+            .lineHeight(20)
+            .fontColor(this.isPro ? UI.WARM : COLORS.TEXT_SECONDARY)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        .margin({ left: 16 })
+
+        Image($r('app.media.ic_arrow_right'))
+          .width(20)
+          .height(20)
+          .fillColor(COLORS.PRIMARY)
       }
+      .width('100%')
 
-      // 用户信息
-      Column() {
-        Text(this.userName)
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
+      Divider()
+        .color('rgba(19,127,100,0.12)')
 
-        Text(this.userStatus)
-          .fontSize(13)
-          .fontColor(this.isPro ? '#f59e0b' : COLORS.TEXT_SECONDARY)
-          .margin({ top: 4 })
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      .margin({ left: 20 })
-
-      // 右箭头
-      Text('>')
-        .fontSize(18)
+      Text('账号与学习权益')
+        .fontSize(13)
         .fontWeight(FontWeight.Medium)
-        .fontColor('#94a3b8')
+        .fontColor(COLORS.PRIMARY)
+        .width('100%')
     }
     .width('100%')
-    .padding(24)
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(24)
-    .border({ width: 1, color: 'rgba(0,0,0,0.04)' })
-    .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+    .padding(22)
+    .backgroundColor(UI.GREEN_SOFT)
+    .borderRadius(UI.CARD_RADIUS)
     .onClick(() => {
       if (this.isLoggedIn) {
         void this.goMemberPage();
@@ -533,113 +559,112 @@ export struct ProfileContent {
 
   @Builder
   VIPBanner() {
-    // 仅在用户不是Pro会员时显示
     if (!this.isPro) {
-      Row() {
-        Row() {
-          Text('👑')
-            .fontSize(16)
-
+      Row({ space: 12 }) {
+        Image($r('app.media.ic_study'))
+          .width(24)
+          .height(24)
+          .fillColor(UI.BLUE)
+        Column({ space: 4 }) {
           Text('LingAI Pro 即将上线')
             .fontSize(15)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#ffffff')
-            .margin({ left: 10 })
+            .fontColor(COLORS.TEXT_PRIMARY)
+          Text('先把今天的学习做好')
+            .fontSize(12)
+            .fontColor(COLORS.TEXT_SECONDARY)
         }
-
-        Blank()
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
 
         Button('详情')
-          .type(ButtonType.Capsule)
-          .backgroundColor('rgba(255,255,255,0.25)')
-          .fontColor('#ffffff')
-          .fontSize(12)
+          .type(ButtonType.Normal)
+          .backgroundColor(COLORS.SURFACE)
+          .fontColor(UI.BLUE)
+          .fontSize(13)
           .fontWeight(FontWeight.Bold)
-          .height(28)
-          .padding({ left: 14, right: 14 })
+          .height(UI.TOUCH_MIN)
+          .borderRadius(14)
+          .padding({ left: 16, right: 16 })
           .onClick(() => {
             this.openMainSheet('vip');
           })
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 16, bottom: 16 })
+      .padding(18)
       .borderRadius(20)
-      .linearGradient({
-        angle: 90,
-        colors: [['#4f46e5', 0], ['#818cf8', 1]]
-      })
-      .shadow({ radius: 20, color: 'rgba(79, 70, 229, 0.3)', offsetY: 8 })
+      .backgroundColor(UI.BLUE_SOFT)
     }
   }
 
   @Builder
   TaskStatsCard() {
     Row() {
-      // 推进
-      Column() {
+      Column({ space: 8 }) {
         Text(this.lessonCount.toString())
-          .fontSize(24)
+          .fontSize(28)
           .fontWeight(FontWeight.Bold)
           .fontColor(COLORS.PRIMARY)
-
         Text('推进')
-          .fontSize(12)
-          .fontColor(COLORS.TEXT_HINT)
-          .margin({ top: 4 })
+          .fontSize(13)
+          .fontColor(COLORS.TEXT_SECONDARY)
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Center)
 
-      // 复习
-      Column() {
-        if (this.reviewDone) {
-          Image($r('app.media.ic_check'))
-            .width(24)
-            .height(24)
-            .fillColor(COLORS.SUCCESS)
-        } else {
-          Text('—')
-            .fontSize(24)
+      Column({ space: 8 }) {
+        Row({ space: 6 }) {
+          Text(this.dailyTask.reviewCount.toString())
+            .fontSize(28)
             .fontWeight(FontWeight.Bold)
-            .fontColor(COLORS.TEXT_HINT)
+            .fontColor(UI.BLUE)
+          if (this.reviewDone) {
+            Image($r('app.media.ic_check'))
+              .width(14)
+              .height(14)
+              .fillColor(COLORS.SUCCESS)
+          } else {
+            Text('-')
+              .fontSize(14)
+              .fontColor(COLORS.TEXT_HINT)
+          }
         }
-
         Text('复习')
-          .fontSize(12)
-          .fontColor(COLORS.TEXT_HINT)
-          .margin({ top: 4 })
+          .fontSize(13)
+          .fontColor(COLORS.TEXT_SECONDARY)
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Center)
 
-      // 学习
-      Column() {
-        if (this.studyDone) {
-          Image($r('app.media.ic_check'))
-            .width(24)
-            .height(24)
-            .fillColor('#fb923c')
-        } else {
-          Text('—')
-            .fontSize(24)
+      Column({ space: 8 }) {
+        Row({ space: 6 }) {
+          Text(this.dailyTask.studyMinutes.toString())
+            .fontSize(28)
             .fontWeight(FontWeight.Bold)
-            .fontColor(COLORS.TEXT_HINT)
+            .fontColor(COLORS.PRIMARY)
+          if (this.studyDone) {
+            Image($r('app.media.ic_check'))
+              .width(14)
+              .height(14)
+              .fillColor(COLORS.SUCCESS)
+          } else {
+            Text('-')
+              .fontSize(14)
+              .fontColor(COLORS.TEXT_HINT)
+          }
         }
-
-        Text('学习')
-          .fontSize(12)
-          .fontColor(COLORS.TEXT_HINT)
-          .margin({ top: 4 })
+        Text('学习分钟')
+          .fontSize(13)
+          .fontColor(COLORS.TEXT_SECONDARY)
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Center)
     }
     .width('100%')
-    .padding({ top: 25, bottom: 25 })
+    .padding({ top: 24, bottom: 24 })
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(24)
-    .border({ width: 1, color: 'rgba(0,0,0,0.04)' })
-    .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+    .borderRadius(UI.CARD_RADIUS)
+    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder
@@ -661,40 +686,36 @@ export struct ProfileContent {
   @Builder
   MenuItem(title: string, icon: Resource, iconColor: string, onClick: () => void) {
     Row() {
-      // 图标容器
       Column() {
         Image(icon)
-          .width(18)
-          .height(18)
-          .fillColor(iconColor)
+          .width(22)
+          .height(22)
+          .fillColor(UI.BLUE)
       }
-      .width(40)
-      .height(40)
-      .borderRadius(12)
-      .backgroundColor(this.getIconBgColor(iconColor))
+      .width(48)
+      .height(48)
+      .borderRadius(16)
+      .backgroundColor(UI.BLUE_SOFT)
       .justifyContent(FlexAlign.Center)
 
-      // 标题
       Text(title)
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .fontColor(COLORS.TEXT_PRIMARY)
-        .margin({ left: 15 })
+        .margin({ left: 16 })
 
       Blank()
 
-      // 箭头
       Image($r('app.media.ic_arrow_right'))
-        .width(20)
-        .height(20)
+        .width(18)
+        .height(18)
         .fillColor(COLORS.TEXT_HINT)
     }
     .width('100%')
-    .padding(20)
+    .padding(18)
     .backgroundColor(COLORS.SURFACE)
     .borderRadius(20)
-    .border({ width: 1, color: 'rgba(0,0,0,0.04)' })
-    .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+    .border({ width: 1, color: COLORS.BORDER })
     .onClick(onClick)
   }
 
@@ -851,15 +872,20 @@ export struct ProfileContent {
       if (this.sheetMode === 'login') {
         // 登录模式内容
         Column() {
+          Image($r('app.media.lingai_robot'))
+            .width(88)
+            .height(88)
+            .objectFit(ImageFit.Contain)
+            .margin({ top: 8, bottom: 12 })
           Text('登录 / 注册')
-            .fontSize(22)
+            .fontSize(26)
             .fontWeight(FontWeight.Bold)
-            .fontColor(themeManager.isDark() ? '#f8fafc' : '#1e293b')
+            .fontColor(COLORS.TEXT_PRIMARY)
             .margin({ top: 10 })
 
           Text('登录后即可解锁学习、词典和基础会员权益')
-            .fontSize(14)
-            .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+            .fontSize(15)
+            .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 8, bottom: 24 })
 
           // 仅保留“本机号码一键登录”入口
@@ -868,9 +894,10 @@ export struct ProfileContent {
               this.isOneClickLoading ? '正在启动...' :
               (this.oneClickCooldownSec > 0 ? `${this.oneClickCooldownSec}s 后重试` : '本机号码一键登录')
             )
-              .type(ButtonType.Capsule)
-              .backgroundColor(this.oneClickCooldownSec > 0 ? '#94a3b8' : '#6366f1')
-              .fontColor('#ffffff')
+              .type(ButtonType.Normal)
+              .borderRadius(UI.CONTROL_RADIUS)
+              .backgroundColor(this.oneClickCooldownSec > 0 ? COLORS.BORDER : COLORS.PRIMARY)
+              .fontColor(UI.ON_PRIMARY)
               .fontSize(16)
               .fontWeight(FontWeight.Bold)
               .width('100%')
@@ -883,18 +910,19 @@ export struct ProfileContent {
             Text(this.oneClickErrorMsg.length > 0
               ? this.oneClickErrorMsg
               : '当前环境暂不支持本机一键登录，请联系测试负责人')
-              .fontSize(14)
-              .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+              .fontSize(15)
+              .fontColor(COLORS.TEXT_SECONDARY)
               .textAlign(TextAlign.Center)
               .margin({ top: 8, bottom: 12 })
               .width('100%')
 
             Button('重新检测一键登录')
               .type(ButtonType.Normal)
-              .backgroundColor(themeManager.isDark() ? 'rgba(99,102,241,0.2)' : '#eef2ff')
-              .fontColor('#6366f1')
-              .fontSize(14)
-              .height(42)
+              .backgroundColor(UI.BLUE_SOFT)
+              .fontColor(UI.BLUE)
+              .fontSize(15)
+              .height(UI.TOUCH_MIN)
+              .borderRadius(14)
               .width('100%')
               .onClick(() => {
                 this.oneClickErrorMsg = '';
@@ -904,35 +932,37 @@ export struct ProfileContent {
 
         }
         .width('100%')
-        .padding({ left: 24, right: 24, top: 20, bottom: 50 })
+        .padding({ left: 24, right: 24, top: 20, bottom: 40 })
       } else {
         // VIP模式内容
         Column() {
           // 皇冠图标
           Column() {
-            Text('👑')
-              .fontSize(32)
+            Image($r('app.media.lingai_robot'))
+              .width(64)
+              .height(64)
+              .objectFit(ImageFit.Contain)
           }
           .width(70)
           .height(70)
           .borderRadius(20)
-          .backgroundColor('#6366f1')
+          .backgroundColor(UI.BLUE_SOFT)
           .justifyContent(FlexAlign.Center)
           .margin({ top: 10 })
 
           // 标语
           Text('当前先开放基础会员，Pro 会员功能即将上线')
             .fontSize(16)
-            .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+            .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 20, bottom: 24 })
 
           // 会员说明卡片
           Column() {
             Column() {
               Text('当前已开放')
-                .fontSize(14)
+                .fontSize(15)
                 .fontWeight(FontWeight.Medium)
-                .fontColor(themeManager.isDark() ? '#cbd5e1' : '#475569')
+                .fontColor(COLORS.TEXT_SECONDARY)
                 .width('100%')
 
               // 功能列表
@@ -948,36 +978,37 @@ export struct ProfileContent {
             .width('100%')
             .padding(24)
             .borderRadius(20)
-            .border({ width: 2, color: '#6366f1' })
+            .border({ width: 1, color: COLORS.BORDER })
 
             Text('敬请期待')
               .fontSize(11)
               .fontWeight(FontWeight.Bold)
-              .fontColor('#ffffff')
-              .backgroundColor('#f59e0b')
+              .fontColor(UI.ON_PRIMARY)
+              .backgroundColor(UI.WARM)
               .borderRadius(8)
               .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-              .position({ x: '78%', y: 12 })
+              .margin({ top: 12 })
           }
           .width('100%')
 
           Text('当前版本不开放价格展示、收费提醒与支付流程。')
             .fontSize(13)
             .lineHeight(20)
-            .fontColor(themeManager.isDark() ? '#94a3b8' : '#64748b')
+            .fontColor(COLORS.TEXT_SECONDARY)
             .textAlign(TextAlign.Center)
             .margin({ top: 18 })
 
           Button(this.isLoggedIn ? '我知道了' : '去登录 / 注册')
-            .type(ButtonType.Capsule)
-            .backgroundColor('#6366f1')
-            .fontColor('#ffffff')
+            .type(ButtonType.Normal)
+              .borderRadius(UI.CONTROL_RADIUS)
+            .backgroundColor(COLORS.PRIMARY)
+            .fontColor(UI.ON_PRIMARY)
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
             .width('100%')
             .height(54)
             .margin({ top: 24 })
-            .shadow({ radius: 15, color: 'rgba(99, 102, 241, 0.4)', offsetY: 4 })
+            .shadow({ radius: 10, color: UI.SHADOW, offsetY: 4 })
             .onClick(() => {
               if (!this.isLoggedIn) {
                 this.sheetMode = 'login';
@@ -987,7 +1018,7 @@ export struct ProfileContent {
             })
         }
         .width('100%')
-        .padding({ left: 24, right: 24, top: 20, bottom: 50 })
+        .padding({ left: 24, right: 24, top: 20, bottom: 40 })
       }
     }
     .width('100%')
@@ -999,10 +1030,10 @@ export struct ProfileContent {
       Text('✓')
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#10b981')
+        .fontColor(COLORS.SUCCESS)
       Text(text)
         .fontSize(15)
-        .fontColor(themeManager.isDark() ? '#f8fafc' : '#0f172a')
+        .fontColor(COLORS.TEXT_PRIMARY)
         .margin({ left: 10 })
     }
   }

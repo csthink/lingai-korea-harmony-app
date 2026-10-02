@@ -4,6 +4,7 @@
  */
 import router from '@ohos.router';
 import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { LearningOverview, DailyStats, VocabStats, DailyTask } from '../models/DataModels';
 import StatisticsService from '../services/StatisticsService';
 import TaskTrackingService from '../services/TaskTrackingService';
@@ -62,23 +63,27 @@ struct StatisticsPage {
       // 标题栏
       Row() {
         Image($r('app.media.ic_back'))
-          .width(24)
-          .height(24)
+          .width(UI.TOUCH_MIN)
+          .height(UI.TOUCH_MIN)
+          .padding(10)
+          .backgroundColor(COLORS.SURFACE)
+          .borderRadius(15)
+          .border({ width: 1, color: COLORS.BORDER })
           .fillColor(COLORS.TEXT_PRIMARY)
           .onClick(() => {
             router.back();
           })
 
         Text('学习统计')
-          .fontSize(20)
-          .fontWeight(FontWeight.Medium)
+          .fontSize(26)
+          .fontWeight(FontWeight.Bold)
           .fontColor(COLORS.TEXT_PRIMARY)
           .margin({ left: 12 })
 
         Blank()
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 42, bottom: 16 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 20 })
       .backgroundColor(COLORS.SURFACE)
 
       if (this.isLoading) {
@@ -114,7 +119,7 @@ struct StatisticsPage {
         }
         .layoutWeight(1)
         .width('100%')
-        .padding({ left: 16, right: 16, top: 8, bottom: 16 })
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 4, bottom: 32 })
         .divider({ strokeWidth: 0 })
       }
     }
@@ -125,92 +130,98 @@ struct StatisticsPage {
 
   @Builder
   OverviewCard() {
-    Column() {
-      Text('学习概览')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(COLORS.TEXT_PRIMARY)
-        .width('100%')
-        .margin({ bottom: 16 })
+    Column({ space: 20 }) {
+      Row() {
+        Column({ space: 5 }) {
+          Text('学习概览')
+            .fontSize(21)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(COLORS.TEXT_PRIMARY)
+          Text('记录每一次认真练习')
+            .fontSize(13)
+            .fontColor(COLORS.TEXT_SECONDARY)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Image($r('app.media.lingai_robot'))
+          .width(56)
+          .height(56)
+          .objectFit(ImageFit.Contain)
+      }
+      .width('100%')
 
-      // 4个指标网格
-      Column() {
+      Column({ space: 12 }) {
         Row() {
           this.StatItem('学习天数', `${this.overview.studyDays}`, '天')
           this.StatItem('学习时长', this.formatTime(this.overview.totalMinutes), '')
         }
         .width('100%')
         .justifyContent(FlexAlign.SpaceBetween)
-
         Row() {
-          this.StatItem('完成关卡', `${this.overview.lessonsCompleted}`, '关')
+          this.StatItem('学习步骤', `${this.overview.lessonsCompleted}`, '步')
           this.StatItem('复习单词', `${this.overview.wordsReviewed}`, '词')
         }
         .width('100%')
-        .margin({ top: 12 })
         .justifyContent(FlexAlign.SpaceBetween)
       }
       .width('100%')
     }
     .width('100%')
-    .padding(16)
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(12)
-    .margin({ bottom: 12 })
+    .padding(20)
+    .backgroundColor(UI.GREEN_SOFT)
+    .borderRadius(UI.CARD_RADIUS)
+    .margin({ bottom: 20 })
   }
 
   @Builder
   StatItem(label: string, value: string, unit: string) {
-    Column() {
-      Text(value)
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(COLORS.PRIMARY)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .height(34)
-        .textAlign(TextAlign.Center)
-
-      Text(unit.length > 0 ? unit : ' ')
-        .fontSize(12)
-        .fontColor(COLORS.TEXT_HINT)
-        .opacity(unit.length > 0 ? 1 : 0)
-        .height(18)
-        .margin({ top: 4 })
-
+    Column({ space: 8 }) {
+      Row({ space: 4 }) {
+        Text(value)
+          .fontSize(26)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(COLORS.PRIMARY)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Text(unit.length > 0 ? unit : ' ')
+          .fontSize(12)
+          .fontColor(COLORS.TEXT_SECONDARY)
+          .opacity(unit.length > 0 ? 1 : 0)
+      }
+      .width('100%')
       Text(label)
-        .fontSize(14)
+        .fontSize(13)
         .fontColor(COLORS.TEXT_SECONDARY)
-        .margin({ top: 8 })
     }
+    .alignItems(HorizontalAlign.Start)
     .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Center)
     .width('48%')
-    .height(118)
-    .padding(12)
-    .backgroundColor(COLORS.BACKGROUND)
-    .borderRadius(8)
+    .height(96)
+    .padding(16)
+    .backgroundColor(COLORS.SURFACE)
+    .borderRadius(16)
   }
 
   @Builder
   TodayTaskCard() {
-    Column() {
+    Column({ space: 14 }) {
       Text('今日任务')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .width('100%')
-        .margin({ bottom: 16 })
 
       this.TaskProgressItem('推进1关', this.todayTask.lessonStepDone, 1, COLORS.PRIMARY)
       this.TaskProgressItem('复习20词', this.todayTask.reviewCount, 20, COLORS.SECONDARY)
       this.TaskProgressItem('学习10分', this.todayTask.studyMinutes, 10, COLORS.ACCENT)
     }
     .width('100%')
-    .padding(16)
+    .padding(22)
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(12)
-    .margin({ bottom: 12 })
+    .borderRadius(UI.CARD_RADIUS)
+    .border({ width: 1, color: COLORS.BORDER })
+    .margin({ bottom: 20 })
   }
 
   @Builder
@@ -244,8 +255,8 @@ struct StatisticsPage {
   CalendarCheckInCard() {
     Column() {
       Text('学习打卡日历')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .width('100%')
         .margin({ bottom: 12 })
@@ -275,15 +286,19 @@ struct StatisticsPage {
       .padding(14)
       .backgroundColor(COLORS.BACKGROUND)
       .borderRadius(14)
-      .border({ width: 1, color: 'rgba(148,163,184,0.16)' })
+      .border({ width: 1, color: COLORS.BORDER })
 
-      this.SelectedDayDetailCard(this.getSelectedDayStats())
+      // 按日期与数值重建详情视图，避免保留初次传入的数据。
+      ForEach([this.getSelectedDayStats()], (stats: DailyStats) => {
+        this.SelectedDayDetailCard(stats)
+      }, (stats: DailyStats) => `${stats.date}:${stats.lessonsCompleted}:${stats.reviewCount}:${stats.studyMinutes}`)
     }
     .width('100%')
-    .padding(16)
+    .padding(20)
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(12)
-    .margin({ bottom: 12 })
+    .borderRadius(UI.CARD_RADIUS)
+    .border({ width: 1, color: COLORS.BORDER })
+    .margin({ bottom: 20 })
   }
 
   @Builder
@@ -296,10 +311,10 @@ struct StatisticsPage {
         .rotate({ angle: isNext ? 180 : 0 })
     }
     .type(ButtonType.Normal)
-    .width(30)
-    .height(30)
-    .backgroundColor(COLORS.BORDER)
-    .borderRadius(8)
+    .width(UI.TOUCH_MIN)
+    .height(UI.TOUCH_MIN)
+    .backgroundColor(UI.BLUE_SOFT)
+    .borderRadius(14)
     .enabled(!isNext || this.canGoNextMonth())
     .opacity(!isNext || this.canGoNextMonth() ? 1 : 0.4)
     .onClick(() => {
@@ -348,14 +363,14 @@ struct StatisticsPage {
         Text(day.dayOfMonth.toString())
           .fontSize(14)
           .fontWeight(this.selectedDate === day.date ? FontWeight.Bold : FontWeight.Medium)
-          .fontColor(this.selectedDate === day.date ? '#FFFFFF' : COLORS.TEXT_PRIMARY)
+          .fontColor(this.selectedDate === day.date ? UI.ON_BLUE : COLORS.TEXT_PRIMARY)
 
         Row()
           .width(4)
           .height(4)
           .borderRadius(2)
           .backgroundColor(day.studyMinutes > 0
-            ? (this.selectedDate === day.date ? '#FFFFFF' : '#22d3ee')
+            ? (this.selectedDate === day.date ? UI.ON_BLUE : UI.BLUE)
             : Color.Transparent)
           .margin({ top: 4 })
       }
@@ -363,7 +378,7 @@ struct StatisticsPage {
       .aspectRatio(1)
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Center)
-      .backgroundColor(this.selectedDate === day.date ? COLORS.PRIMARY : Color.Transparent)
+      .backgroundColor(this.selectedDate === day.date ? UI.BLUE : Color.Transparent)
       .borderRadius(12)
       .onClick(() => {
         this.selectedDate = day.date;
@@ -373,64 +388,47 @@ struct StatisticsPage {
 
   @Builder
   SelectedDayDetailCard(stats: DailyStats) {
-    Row() {
-      Column()
-        .width(3)
-        .height(150)
-        .backgroundColor(COLORS.PRIMARY)
-        .borderRadius(2)
-        .margin({ right: 12 })
-
-      Column() {
-        Row() {
-          Column() {
-            Text(this.getSelectedDateLabel())
-              .fontSize(22)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(COLORS.TEXT_PRIMARY)
-
-            Text('学习详情')
-              .fontSize(12)
-              .fontColor(COLORS.TEXT_HINT)
-              .margin({ top: 2 })
-          }
-          .alignItems(HorizontalAlign.Start)
-
-          Blank()
-
-          Text(this.isDayCompleted(stats) ? '已完成' : '未完成')
-            .fontSize(12)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.isDayCompleted(stats) ? '#10b981' : COLORS.TEXT_HINT)
-            .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-            .backgroundColor(this.isDayCompleted(stats) ? 'rgba(16,185,129,0.16)' : COLORS.BORDER)
-            .borderRadius(12)
+    Column({ space: 16 }) {
+      Row() {
+        Column({ space: 4 }) {
+          Text(this.getSelectedDateLabel())
+            .fontSize(22)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(COLORS.TEXT_PRIMARY)
+          Text('学习详情')
+            .fontSize(13)
+            .fontColor(COLORS.TEXT_SECONDARY)
         }
-        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
 
-        Row({ space: 12 }) {
-          this.DayDetailMetricCard(`${stats.lessonsCompleted}`, '关卡数', COLORS.PRIMARY)
-          this.DayDetailMetricCard(`${stats.reviewCount}`, '单词数', '#22d3ee')
-        }
-        .width('100%')
-        .margin({ top: 12 })
-
-        Text(`学习时长 ${stats.studyMinutes} 分钟`)
+        Text(this.isDayCompleted(stats) ? '已完成' : '未完成')
           .fontSize(12)
-          .fontColor(COLORS.TEXT_SECONDARY)
-          .margin({ top: 10 })
-          .width('100%')
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.isDayCompleted(stats) ? COLORS.PRIMARY : COLORS.TEXT_SECONDARY)
+          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+          .backgroundColor(this.isDayCompleted(stats) ? UI.GREEN_SOFT : UI.SURFACE_MUTED)
+          .borderRadius(10)
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+
+      Row({ space: 12 }) {
+        this.DayDetailMetricCard(`${stats.lessonsCompleted}`, '学习步骤', COLORS.PRIMARY)
+        this.DayDetailMetricCard(`${stats.reviewCount}`, '复习单词', UI.BLUE)
+      }
+      .width('100%')
+
+      Text(`学习时长 ${stats.studyMinutes} 分钟`)
+        .fontSize(13)
+        .fontColor(COLORS.TEXT_SECONDARY)
+        .width('100%')
     }
-    .alignItems(VerticalAlign.Top)
+    .alignItems(HorizontalAlign.Start)
     .width('100%')
-    .padding(14)
-    .margin({ top: 14 })
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(14)
-    .border({ width: 1, color: 'rgba(148,163,184,0.16)' })
+    .padding(18)
+    .margin({ top: 16 })
+    .backgroundColor(UI.BLUE_SOFT)
+    .borderRadius(18)
   }
 
   @Builder
@@ -451,15 +449,15 @@ struct StatisticsPage {
     .padding({ left: 14, right: 14, top: 12, bottom: 12 })
     .backgroundColor(COLORS.BACKGROUND)
     .borderRadius(10)
-    .border({ width: 1, color: 'rgba(148,163,184,0.14)' })
+    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder
   VocabularyStatsCard() {
     Column() {
       Text('生词本统计')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .width('100%')
         .margin({ bottom: 16 })
@@ -472,9 +470,10 @@ struct StatisticsPage {
       .justifyContent(FlexAlign.SpaceAround)
     }
     .width('100%')
-    .padding(16)
+    .padding(20)
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(12)
+    .borderRadius(UI.CARD_RADIUS)
+    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder

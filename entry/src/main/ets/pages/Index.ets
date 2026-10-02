@@ -18,6 +18,7 @@ import TaskTrackingService from '../services/TaskTrackingService';
 import preferences from '@ohos.data.preferences';
 import { themeManager } from '../utils/ThemeManager';
 import ApiService from '../services/ApiService';
+import { UI } from '../utils/UiTokens';
 
 @Entry
 @Component
@@ -189,6 +190,7 @@ struct Index {
       height: '85%',
       dragBar: false,
       showClose: false,
+      keyboardAvoidMode: SheetKeyboardAvoidMode.RESIZE_ONLY,
       backgroundColor: Color.Transparent
     })
   }
@@ -196,6 +198,7 @@ struct Index {
   @Builder
   SpiritPanelBuilder() {
     SpiritChatPanel({
+      panelHeight: '100%',
       onClose: () => {
         this.showSpiritPanel = false;
       }
@@ -228,10 +231,34 @@ struct Index {
 
   @Builder
   DictTabContent() {
-    DictContent({
-      searchWordFromExternal: this.dictSearchWord,
-      activeTabIndex: this.currentTabIndex
-    })
+    Column() {
+      DictContent({
+        searchWordFromExternal: this.dictSearchWord,
+        activeTabIndex: this.currentTabIndex
+      })
+      .layoutWeight(1)
+
+      Row() {
+        Column({ space: 6 }) {
+          Text('小语灵助手')
+            .fontSize(UI.BODY_SIZE)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(COLORS.TEXT_PRIMARY)
+          Text('随时提问，继续练习')
+            .fontSize(UI.CAPTION_SIZE)
+            .fontColor(COLORS.TEXT_SECONDARY)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Blank().width(88)
+      }
+      .width('100%')
+      .height(112)
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
+      Blank().height(UI.NAV_HEIGHT)
+    }
+    .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -243,31 +270,37 @@ struct Index {
       this.BottomTabItem('我的', $r('app.media.ic_mine'), 3)
     }
     .width('100%')
-    .height(74)
-    .padding({ bottom: 14 })
+    .height(UI.NAV_HEIGHT)
+    .padding({ left: 8, right: 8, top: 6, bottom: 16 })
     .backgroundColor(themeManager.navBg)
-    .border({ width: 1, color: themeManager.glassBorder })
+    .border({ width: { top: 1 }, color: themeManager.glassBorder })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
-    .translate({ y: 8 })
   }
 
   @Builder
   BottomTabItem(title: string, icon: Resource, index: number) {
     Column() {
-      Image(icon)
-        .width(24)
-        .height(24)
-        .fillColor(this.currentTabIndex === index
-          ? COLORS.PRIMARY
-          : themeManager.textDim)
+      Row() {
+        Image(icon)
+          .width(22)
+          .height(22)
+          .fillColor(this.currentTabIndex === index
+            ? COLORS.PRIMARY
+            : themeManager.textDim)
+      }
+      .width(54)
+      .height(32)
+      .justifyContent(FlexAlign.Center)
+      .borderRadius(12)
+      .backgroundColor(this.currentTabIndex === index ? UI.GREEN_SOFT : Color.Transparent)
 
       Text(title)
-        .fontSize(11)
-        .fontWeight(FontWeight.Medium)
+        .fontSize(12)
+        .fontWeight(this.currentTabIndex === index ? FontWeight.Bold : FontWeight.Medium)
         .fontColor(this.currentTabIndex === index
           ? COLORS.PRIMARY
           : themeManager.textDim)
-        .margin({ top: 6 })
+        .margin({ top: 4 })
     }
     .layoutWeight(1)
     .height('100%')

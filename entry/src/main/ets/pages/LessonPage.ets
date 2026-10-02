@@ -18,6 +18,7 @@ import TaskTrackingService from '../services/TaskTrackingService';
 import PreferencesService from '../services/PreferencesService';
 import preferences from '@ohos.data.preferences';
 import { WORDS_PER_LESSON } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 
 // 学习阶段
 enum LearningPhase {
@@ -356,6 +357,7 @@ struct LessonPage {
       this.TopBar()
 
       // 主内容区
+      Column() {
       if (this.phase === LearningPhase.LOADING) {
         this.LoadingContent()
       } else if (this.phase === LearningPhase.PREVIEW) {
@@ -365,6 +367,11 @@ struct LessonPage {
       } else {
         this.ResultContent()
       }
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .margin({ bottom: 112 })
+      .clip(true)
     }
     .width('100%')
     .height('100%')
@@ -448,7 +455,7 @@ struct LessonPage {
           .color(COLORS.PRIMARY)
 
         Text('正在加载词表...')
-          .fontSize(16)
+          .fontSize(UI.BODY_SIZE)
           .fontColor(COLORS.TEXT_SECONDARY)
           .margin({ top: 16 })
       } else {
@@ -477,10 +484,10 @@ struct LessonPage {
         Button(this.loadingActionLabel())
           .type(ButtonType.Capsule)
           .backgroundColor(COLORS.PRIMARY)
-          .fontColor('#ffffff')
+          .fontColor(UI.ON_PRIMARY)
           .fontSize(15)
           .fontWeight(FontWeight.Medium)
-          .height(40)
+          .height(UI.TOUCH_MIN)
           .padding({ left: 32, right: 32 })
           .margin({ top: 24 })
           .onClick(() => {
@@ -511,41 +518,47 @@ struct LessonPage {
           .fillColor(COLORS.TEXT_PRIMARY)
       }
       .type(ButtonType.Circle)
-      .width(40)
-      .height(40)
-      .backgroundColor('transparent')
+      .width(UI.TOUCH_MIN)
+      .height(UI.TOUCH_MIN)
+      .backgroundColor(UI.SURFACE_MUTED)
       .onClick(() => {
         router.back();
       })
 
       Column() {
         Text(this.lessonInfo.title)
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
           .fontColor(COLORS.TEXT_PRIMARY)
 
         Text(this.getPhaseLabel())
-          .fontSize(12)
-          .fontColor(COLORS.TEXT_SECONDARY)
+          .fontSize(UI.CAPTION_SIZE)
+          .fontColor(COLORS.PRIMARY)
+          .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+          .backgroundColor(UI.GREEN_SOFT)
+          .borderRadius(10)
+          .margin({ top: 5 })
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Center)
 
       if (this.phase === LearningPhase.PREVIEW) {
         Button('直接练习')
-          .fontSize(14)
+          .fontSize(UI.CAPTION_SIZE)
           .fontColor(COLORS.TEXT_SECONDARY)
-          .backgroundColor('transparent')
+          .backgroundColor(UI.BLUE_SOFT)
+          .height(UI.TOUCH_MIN)
+          .borderRadius(14)
           .onClick(() => {
             this.showSkipPreviewDialog = true;
           })
       } else {
         Blank()
-          .width(40)
+          .width(UI.TOUCH_MIN)
       }
     }
     .width('100%')
-    .padding({ left: 8, right: 8, top: 42, bottom: 8 })
+    .padding({ left: 16, right: 16, top: UI.CONTENT_TOP, bottom: 16 })
     .backgroundColor(COLORS.SURFACE)
   }
 
@@ -562,7 +575,7 @@ struct LessonPage {
             .width('100%')
 
           Text('确定要跳过单词预习直接开始练习吗？')
-            .fontSize(16)
+            .fontSize(UI.BODY_SIZE)
             .lineHeight(24)
             .fontColor(COLORS.TEXT_SECONDARY)
             .textAlign(TextAlign.Center)
@@ -573,7 +586,7 @@ struct LessonPage {
         .padding({ left: 24, right: 24, top: 24, bottom: 0 })
 
         Divider()
-          .color('rgba(148,163,184,0.24)')
+          .color(COLORS.BORDER)
 
         Row() {
           Button('取消')
@@ -592,7 +605,7 @@ struct LessonPage {
           Column()
             .width(1)
             .height(24)
-            .backgroundColor('rgba(148,163,184,0.24)')
+            .backgroundColor(COLORS.BORDER)
 
           Button('确定')
             .type(ButtonType.Normal)
@@ -613,8 +626,8 @@ struct LessonPage {
       .width('86%')
       .backgroundColor(COLORS.SURFACE)
       .borderRadius(22)
-      .border({ width: 1, color: 'rgba(148,163,184,0.22)' })
-      .shadow({ radius: 24, color: 'rgba(0,0,0,0.50)', offsetY: 6 })
+      .border({ width: 1, color: COLORS.BORDER })
+      .shadow({ radius: 24, color: UI.SHADOW, offsetY: 6 })
       .onClick(() => {})
     }
     .width('100%')
@@ -771,10 +784,10 @@ struct LessonPage {
           .width('100%')
           .height(4)
           .color(COLORS.PRIMARY)
-          .backgroundColor(COLORS.BORDER)
+          .backgroundColor(UI.GREEN_SOFT)
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 12 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12 })
 
       Row() {
         Row() {
@@ -783,7 +796,7 @@ struct LessonPage {
             .height(16)
             .fillColor(COLORS.SUCCESS)
           Text(`${this.correctCount}`)
-            .fontSize(14)
+            .fontSize(UI.CAPTION_SIZE)
             .fontColor(COLORS.SUCCESS)
             .margin({ left: 4 })
         }
@@ -794,14 +807,14 @@ struct LessonPage {
             .height(16)
             .fillColor(COLORS.ERROR)
           Text(`${this.wrongCount}`)
-            .fontSize(14)
+            .fontSize(UI.CAPTION_SIZE)
             .fontColor(COLORS.ERROR)
             .margin({ left: 4 })
         }
         .margin({ left: 16 })
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 8 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12 })
 
       if (this.quizzes.length > 0 && this.currentQuizIndex < this.quizzes.length) {
         QuizCard({
@@ -849,12 +862,14 @@ struct LessonPage {
 
   @Builder
   ResultContent() {
+    Scroll() {
     Column() {
-      Blank().height(40)
+      Blank().height(UI.TOUCH_MIN)
 
       Image(this.isPassed ? $r('app.media.ic_trophy') : $r('app.media.ic_retry'))
         .width(100)
         .height(100)
+        .fillColor(this.isPassed ? UI.WARM : COLORS.TEXT_SECONDARY)
 
       Text(this.isPassed ? '恭喜通关！' : '继续加油！')
         .fontSize(28)
@@ -864,7 +879,7 @@ struct LessonPage {
 
       Row() {
         Text('正确率')
-          .fontSize(16)
+          .fontSize(UI.BODY_SIZE)
           .fontColor(COLORS.TEXT_SECONDARY)
 
         Text(`${Math.round(this.correctCount / this.quizzes.length * 100)}%`)
@@ -887,11 +902,11 @@ struct LessonPage {
 
           Row() {
             Text('答错')
-              .fontSize(14)
+              .fontSize(UI.CAPTION_SIZE)
               .fontColor(COLORS.TEXT_SECONDARY)
             if (this.wrongCount > 0) {
               Text(' ▶')
-                .fontSize(12)
+                .fontSize(UI.CAPTION_SIZE)
                 .fontColor(COLORS.ERROR)
             }
           }
@@ -906,7 +921,11 @@ struct LessonPage {
         this.StatItem('本轮掌握', `${this.masteredThisRound}`, COLORS.PRIMARY)
       }
       .width('100%')
-      .margin({ top: 32 })
+      .padding({ top: 20, bottom: 20 })
+      .backgroundColor(COLORS.SURFACE)
+      .borderRadius(UI.CARD_RADIUS)
+      .border({ width: 1, color: COLORS.BORDER })
+      .margin({ top: 24 })
       .justifyContent(FlexAlign.SpaceEvenly)
 
       Blank()
@@ -916,10 +935,10 @@ struct LessonPage {
           Button('进入下一关')
             .type(ButtonType.Capsule)
             .width('100%')
-            .height(48)
+            .height(52)
             .backgroundColor(COLORS.PRIMARY)
-            .fontSize(16)
-            .fontColor('#FFFFFF')
+            .fontSize(UI.BODY_SIZE)
+            .fontColor(UI.ON_PRIMARY)
             .onClick(() => {
               // 直接进入下一关
               const nextLessonId = this.lessonInfo.lessonId + 1;
@@ -936,10 +955,10 @@ struct LessonPage {
           Button('再练一次')
             .type(ButtonType.Capsule)
             .width('100%')
-            .height(48)
+            .height(52)
             .backgroundColor(COLORS.PRIMARY)
-            .fontSize(16)
-            .fontColor('#FFFFFF')
+            .fontSize(UI.BODY_SIZE)
+            .fontColor(UI.ON_PRIMARY)
             .onClick(() => {
               this.restartPractice();
             })
@@ -948,10 +967,10 @@ struct LessonPage {
         Button('返回关卡列表')
           .type(ButtonType.Capsule)
           .width('100%')
-          .height(48)
+          .height(52)
           .backgroundColor('transparent')
           .fontColor(COLORS.TEXT_SECONDARY)
-          .fontSize(16)
+          .fontSize(UI.BODY_SIZE)
           .border({ width: 1, color: COLORS.BORDER })
           .margin({ top: 12 })
           .onClick(() => {
@@ -959,10 +978,15 @@ struct LessonPage {
           })
       }
       .width('100%')
-      .padding({ left: 24, right: 24, bottom: 24 })
+      .padding({ top: 24, bottom: 24 })
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 560 })
+    .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 48 })
     }
     .width('100%')
     .height('100%')
+    .scrollBar(BarState.Off)
   }
 
   @Builder
@@ -974,7 +998,7 @@ struct LessonPage {
         .fontColor(color)
 
       Text(label)
-        .fontSize(14)
+        .fontSize(UI.CAPTION_SIZE)
         .fontColor(COLORS.TEXT_SECONDARY)
         .margin({ top: 4 })
     }

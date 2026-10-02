@@ -4,6 +4,7 @@
  * 适配 ArkTS 严格模式
  */
 import { COLORS } from '../utils/Constants';
+import { UI } from '../utils/UiTokens';
 import { WordEntry, DictAIResponse, Sense, ExampleSentence } from '../models/DataModels';
 import { PlayButton, PlayIcon } from './PlayButton';
 
@@ -23,16 +24,17 @@ export struct WordCard {
         Column() {
           Row() {
             Text(this.word.hangul)
-              .fontSize(28)
+              .fontSize(32)
               .fontWeight(FontWeight.Bold)
               .fontColor(COLORS.TEXT_PRIMARY)
+              .layoutWeight(1)
 
             // 使用带动画的PlayButton
             PlayButton({
               text: this.word.hangul,
               buttonSize: 44,
               iconBtnSize: 24,
-              color: COLORS.PRIMARY,
+              color: UI.BLUE,
               onPlay: (text: string) => {
                 if (this.onPlayAudio) {
                   this.onPlayAudio(text);
@@ -41,15 +43,16 @@ export struct WordCard {
             })
               .margin({ left: 12 })
           }
+          .width('100%')
 
           Text(this.word.romanization)
-            .fontSize(14)
+            .fontSize(UI.CAPTION_SIZE)
             .fontColor(COLORS.TEXT_SECONDARY)
             .margin({ top: 4 })
         }
         .alignItems(HorizontalAlign.Start)
-
-        Blank()
+        .layoutWeight(1)
+        .margin({ right: 12 })
 
         if (this.showAddButton) {
           Button() {
@@ -59,9 +62,9 @@ export struct WordCard {
               .fillColor(COLORS.PRIMARY)
           }
           .type(ButtonType.Circle)
-          .width(40)
-          .height(40)
-          .backgroundColor(COLORS.SURFACE)
+          .width(UI.TOUCH_MIN)
+          .height(UI.TOUCH_MIN)
+          .backgroundColor(UI.GREEN_SOFT)
           .border({ width: 1, color: COLORS.PRIMARY })
           .onClick(() => {
             if (this.onAddToWordbook) {
@@ -72,8 +75,12 @@ export struct WordCard {
       }
       .width('100%')
 
+      Divider()
+        .color(COLORS.BORDER)
+        .margin({ top: 20, bottom: 4 })
+
       Text(this.word.primaryMeaning)
-        .fontSize(20)
+        .fontSize(24)
         .fontWeight(FontWeight.Medium)
         .fontColor(COLORS.PRIMARY)
         .margin({ top: 16 })
@@ -84,9 +91,9 @@ export struct WordCard {
           Text(this.word.pos)
             .fontSize(12)
             .fontColor(COLORS.TEXT_SECONDARY)
-            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-            .backgroundColor(COLORS.BORDER)
-            .borderRadius(4)
+            .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+            .backgroundColor(UI.BLUE_SOFT)
+            .borderRadius(10)
         }
         .width('100%')
         .margin({ top: 8 })
@@ -95,7 +102,7 @@ export struct WordCard {
       if (this.word.examples.length > 0) {
         Column() {
           Text('例句')
-            .fontSize(14)
+            .fontSize(UI.CAPTION_SIZE)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_SECONDARY)
             .width('100%')
@@ -104,7 +111,7 @@ export struct WordCard {
             Column() {
               Row() {
                 Text(example.ko)
-                  .fontSize(15)
+                  .fontSize(UI.BODY_SIZE)
                   .fontColor(COLORS.TEXT_PRIMARY)
                   .layoutWeight(1)
 
@@ -131,8 +138,8 @@ export struct WordCard {
             .width('100%')
             .padding(12)
             .margin({ top: 8 })
-            .backgroundColor(COLORS.BACKGROUND)
-            .borderRadius(8)
+            .backgroundColor(UI.SURFACE_MUTED)
+            .borderRadius(UI.CONTROL_RADIUS)
           })
         }
         .width('100%')
@@ -144,8 +151,8 @@ export struct WordCard {
           .type(ButtonType.Normal)
           .backgroundColor('transparent')
           .fontColor(COLORS.PRIMARY)
-          .fontSize(14)
-          .height(36)
+          .fontSize(UI.CAPTION_SIZE)
+          .height(UI.TOUCH_MIN)
           .margin({ top: 12 })
           .onClick(() => {
             this.isExpanded = !this.isExpanded;
@@ -157,14 +164,14 @@ export struct WordCard {
           if (this.word.senses.length > 1) {
             Column() {
               Text('其他义项')
-                .fontSize(14)
+                .fontSize(UI.CAPTION_SIZE)
                 .fontWeight(FontWeight.Medium)
                 .fontColor(COLORS.TEXT_SECONDARY)
                 .width('100%')
 
               ForEach(this.word.senses.slice(1), (sense: Sense) => {
                 Text(`• ${sense.meaning}`)
-                  .fontSize(14)
+                  .fontSize(UI.CAPTION_SIZE)
                   .fontColor(COLORS.TEXT_PRIMARY)
                   .width('100%')
                   .margin({ top: 6 })
@@ -177,7 +184,7 @@ export struct WordCard {
           if (this.word.collocations.length > 0) {
             Column() {
               Text('常用搭配')
-                .fontSize(14)
+                .fontSize(UI.CAPTION_SIZE)
                 .fontWeight(FontWeight.Medium)
                 .fontColor(COLORS.TEXT_SECONDARY)
                 .width('100%')
@@ -246,14 +253,14 @@ export struct WordCard {
         .width('100%')
         .margin({ top: 16 })
         .padding(12)
-        .backgroundColor(COLORS.SECONDARY + '10')
-        .borderRadius(8)
+        .backgroundColor(UI.BLUE_SOFT)
+        .borderRadius(UI.CONTROL_RADIUS)
       }
     }
     .width('100%')
-    .padding(16)
+    .padding(20)
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(16)
-    .shadow({ radius: 4, color: '#0000000A', offsetY: 2 })
+    .borderRadius(UI.CARD_RADIUS)
+    .border({ width: 1, color: COLORS.BORDER })
   }
 }

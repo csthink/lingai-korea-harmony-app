@@ -7,6 +7,7 @@ import router from '@ohos.router';
 import { COLORS, TOPIK_LEVELS, WORDS_PER_LESSON } from '../utils/Constants';
 import preferences from '@ohos.data.preferences';
 import { themeManager } from '../utils/ThemeManager';
+import { UI } from '../utils/UiTokens';
 import ApiService from '../services/ApiService';
 import PreferencesService from '../services/PreferencesService';
 import { AuthRequiredState } from './AuthRequiredState';
@@ -296,9 +297,14 @@ export struct StudyContent {
           source: 'study_tab_gate',
         })
       } else {
+        this.StudyHeader()
         // 分段选择器
-        this.TabSelector()
-        this.MemberQuotaBanner()
+        Column() {
+          this.TabSelector()
+          this.MemberQuotaBanner()
+        }
+        .width('100%')
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
 
         // 关卡地图
         this.LevelMap()
@@ -315,6 +321,29 @@ export struct StudyContent {
   }
 
   @Builder
+  StudyHeader() {
+    Row({ space: 12 }) {
+      Column({ space: 6 }) {
+        Text('学习地图')
+          .fontSize(UI.TITLE_SIZE)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(COLORS.TEXT_PRIMARY)
+        Text('把韩语学习，变成每天的小进步')
+          .fontSize(UI.CAPTION_SIZE)
+          .fontColor(COLORS.TEXT_SECONDARY)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Image($r('app.media.lingai_robot'))
+        .width(56)
+        .height(56)
+        .objectFit(ImageFit.Contain)
+    }
+    .width('100%')
+    .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 16 })
+  }
+
+  @Builder
   TabSelector() {
     Stack() {
       // 滑块指示器（底层）
@@ -323,7 +352,7 @@ export struct StudyContent {
         .height('100%')
         .backgroundColor(COLORS.PRIMARY)
         .borderRadius(16)
-        .shadow({ radius: 15, color: 'rgba(99, 102, 241, 0.3)', offsetY: 4 })
+        .shadow({ radius: 6, color: UI.SHADOW, offsetY: 2 })
         .margin({ left: this.getSliderMargin() })
         .animation({ duration: 300, curve: Curve.EaseOut })
 
@@ -333,7 +362,7 @@ export struct StudyContent {
           Text(tab)
             .fontSize(14)
             .fontWeight(FontWeight.Bold)
-            .fontColor(this.selectedTabIndex === index ? '#ffffff' : COLORS.TEXT_SECONDARY)
+            .fontColor(this.selectedTabIndex === index ? UI.ON_PRIMARY : COLORS.TEXT_SECONDARY)
             .textAlign(TextAlign.Center)
             .layoutWeight(1)
             .height('100%')
@@ -347,13 +376,13 @@ export struct StudyContent {
       .height('100%')
     }
     .width('100%')
-    .height(44)
+    .height(52)
     .padding(4)
-    .margin({ left: 20, right: 20, top: 44, bottom: 30 })
+    .margin({ bottom: 16 })
     .backgroundColor(COLORS.SURFACE)
     .borderRadius(20)
-    .border({ width: 1, color: 'rgba(0,0,0,0.06)' })
-    .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+    .border({ width: 1, color: COLORS.BORDER })
+    .shadow({ radius: 8, color: UI.SHADOW, offsetY: 2 })
     .alignContent(Alignment.Start)
   }
 
@@ -380,13 +409,14 @@ export struct StudyContent {
           .fontColor(COLORS.TEXT_SECONDARY)
 
         Text(this.lessonQuotaSummary())
-          .fontSize(14)
+          .fontSize(UI.BODY_SIZE)
           .fontWeight(FontWeight.Medium)
           .fontColor(COLORS.TEXT_PRIMARY)
           .margin({ top: 4 })
 
         Text(this.lessonQuotaCaption())
-          .fontSize(11)
+          .fontSize(UI.CAPTION_SIZE)
+          .lineHeight(19)
           .fontColor(COLORS.TEXT_HINT)
           .margin({ top: 6 })
       }
@@ -402,11 +432,11 @@ export struct StudyContent {
         .borderRadius(999)
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
-    .margin({ left: 20, right: 20, bottom: 12 })
+    .padding(18)
+    .margin({ bottom: 12 })
     .backgroundColor(COLORS.SURFACE)
     .borderRadius(20)
-    .border({ width: 1, color: 'rgba(99, 102, 241, 0.08)' })
+    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder
@@ -433,7 +463,7 @@ export struct StudyContent {
         })
       }
       .width('100%')
-      .padding({ left: 30, right: 30, top: 30, bottom: 120 })
+      .padding({ left: 30, right: 30, top: 30, bottom: 192 })
     }
     .width('100%')
     .layoutWeight(1)
@@ -457,43 +487,43 @@ export struct StudyContent {
     Column({ space: 5 }) {
       Row() {
         Blank().layoutWeight(this.getInterpolatedX(index, 0))
-        Ellipse().width(12).height(7).fill('#94a3b8')
+        Ellipse().width(12).height(7).fill(COLORS.BORDER)
         Blank().layoutWeight(1 - this.getInterpolatedX(index, 0))
       }.width('100%')
 
       Row() {
         Blank().layoutWeight(this.getInterpolatedX(index, 1))
-        Ellipse().width(12).height(7).fill('#94a3b8')
+        Ellipse().width(12).height(7).fill(COLORS.BORDER)
         Blank().layoutWeight(1 - this.getInterpolatedX(index, 1))
       }.width('100%')
 
       Row() {
         Blank().layoutWeight(this.getInterpolatedX(index, 2))
-        Ellipse().width(11).height(6).fill('#94a3b8')
+        Ellipse().width(11).height(6).fill(COLORS.BORDER)
         Blank().layoutWeight(1 - this.getInterpolatedX(index, 2))
       }.width('100%')
 
       Row() {
         Blank().layoutWeight(this.getInterpolatedX(index, 3))
-        Ellipse().width(11).height(6).fill('#94a3b8')
+        Ellipse().width(11).height(6).fill(COLORS.BORDER)
         Blank().layoutWeight(1 - this.getInterpolatedX(index, 3))
       }.width('100%')
 
       Row() {
         Blank().layoutWeight(this.getInterpolatedX(index, 4))
-        Ellipse().width(10).height(6).fill('#94a3b8')
+        Ellipse().width(10).height(6).fill(COLORS.BORDER)
         Blank().layoutWeight(1 - this.getInterpolatedX(index, 4))
       }.width('100%')
 
       Row() {
         Blank().layoutWeight(this.getInterpolatedX(index, 5))
-        Ellipse().width(10).height(5).fill('#94a3b8')
+        Ellipse().width(10).height(5).fill(COLORS.BORDER)
         Blank().layoutWeight(1 - this.getInterpolatedX(index, 5))
       }.width('100%')
 
       Row() {
         Blank().layoutWeight(this.getInterpolatedX(index, 6))
-        Ellipse().width(10).height(5).fill('#94a3b8')
+        Ellipse().width(10).height(5).fill(COLORS.BORDER)
         Blank().layoutWeight(1 - this.getInterpolatedX(index, 6))
       }.width('100%')
     }
@@ -511,7 +541,8 @@ export struct StudyContent {
           .width(84)
           .height(84)
           .fill(Color.Transparent)
-          .stroke('rgba(99, 102, 241, ' + this.ripple3Opacity.toFixed(2) + ')')
+          .stroke(UI.BLUE)
+          .opacity(this.ripple3Opacity)
           .strokeWidth(2)
           .scale({ x: this.ripple3Scale, y: this.ripple3Scale })
 
@@ -520,7 +551,8 @@ export struct StudyContent {
           .width(84)
           .height(84)
           .fill(Color.Transparent)
-          .stroke('rgba(99, 102, 241, ' + this.ripple2Opacity.toFixed(2) + ')')
+          .stroke(UI.BLUE)
+          .opacity(this.ripple2Opacity)
           .strokeWidth(2)
           .scale({ x: this.ripple2Scale, y: this.ripple2Scale })
 
@@ -529,7 +561,8 @@ export struct StudyContent {
           .width(84)
           .height(84)
           .fill(Color.Transparent)
-          .stroke('rgba(99, 102, 241, ' + this.breathOpacity.toFixed(2) + ')')
+          .stroke(UI.BLUE)
+          .opacity(this.breathOpacity)
           .strokeWidth(2)
           .scale({ x: this.breathScale, y: this.breathScale })
 
@@ -538,7 +571,7 @@ export struct StudyContent {
           .width(88)
           .height(88)
           .fill(Color.Transparent)
-          .stroke('rgba(255, 255, 255, 0.5)')
+          .stroke(COLORS.SURFACE)
           .strokeWidth(3)
       }
 
@@ -554,20 +587,25 @@ export struct StudyContent {
         Image($r('app.media.ic_lock'))
           .width(32)
           .height(32)
-          .fillColor('#94a3b8')
+          .fillColor(COLORS.TEXT_HINT)
       } else if (level.status === LevelStatus.COMPLETED) {
         // 已完成：显示白色对勾
         Image($r('app.media.ic_check'))
           .width(36)
           .height(36)
-          .fillColor('#ffffff')
+          .fillColor(UI.ON_PRIMARY)
       } else {
         // 当前关卡：显示关卡号和星星
         Column() {
-          Text(level.id.toString())
-            .fontSize(28)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#ffffff')
+          Row({ space: 4 }) {
+            Image($r('app.media.lingai_robot'))
+              .width(26)
+              .height(26)
+            Text(level.id.toString())
+              .fontSize(26)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(UI.ON_BLUE)
+          }
 
           Row({ space: 3 }) {
             Text('⭐')
@@ -591,11 +629,11 @@ export struct StudyContent {
   getNodeColor(status: LevelStatus): ResourceColor {
     switch (status) {
       case LevelStatus.COMPLETED:
-        return '#10b981';  // 绿色
+        return COLORS.SUCCESS;  // 绿色
       case LevelStatus.CURRENT:
-        return '#6366f1';  // 紫色
+        return UI.BLUE;  // 当前关卡
       default:
-        return '#cbd5e1';  // 灰色（锁定）
+        return UI.SURFACE_MUTED;  // 锁定
     }
   }
 
@@ -631,16 +669,16 @@ export struct StudyContent {
 
   private lessonQuotaBadgeTextColor(): string {
     if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
-      return '#b91c1c';
+      return UI.DANGER_TEXT;
     }
     return COLORS.PRIMARY;
   }
 
   private lessonQuotaBadgeBackground(): string {
     if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
-      return 'rgba(239, 68, 68, 0.12)';
+      return UI.DANGER_SOFT;
     }
-    return 'rgba(99, 102, 241, 0.12)';
+    return UI.GREEN_SOFT;
   }
 
   async goToLesson(lessonId: number) {

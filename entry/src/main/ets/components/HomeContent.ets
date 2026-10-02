@@ -10,6 +10,7 @@ import TaskTrackingService from '../services/TaskTrackingService';
 import ApiService from '../services/ApiService';
 import PreferencesService from '../services/PreferencesService';
 import { themeManager } from '../utils/ThemeManager';
+import { UI } from '../utils/UiTokens';
 import preferences from '@ohos.data.preferences';
 
 class IndexRouteParams {
@@ -171,207 +172,191 @@ export struct HomeContent {
 
   build() {
     Column() {
-      // 顶部Header: 问候语 + 连续天数徽章
-      this.HeaderSection()
-
-      // 环形进度条
-      this.ProgressSection()
-
-      // 今日任务标题
-      Text('今日任务')
-        .fontSize(18)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(COLORS.TEXT_PRIMARY)
+      Scroll() {
+        Column({ space: UI.SECTION_GAP }) {
+          this.HeaderSection()
+          this.ProgressSection()
+          Column({ space: 14 }) {
+            Text('今日任务')
+              .fontSize(20)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(COLORS.TEXT_PRIMARY)
+              .width('100%')
+            this.TaskCards()
+          }
+          .width('100%')
+        }
         .width('100%')
-        .padding({ left: 24, right: 24, top: 30, bottom: 16 })
-
-      // 任务卡片列表
-      this.TaskCards()
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 0, bottom: 192 })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .margin({ top: UI.CONTENT_TOP })
+      .clip(true)
+      .clipContent(ContentClipMode.CONTENT_ONLY)
+      .scrollBar(BarState.Off)
+      .backgroundColor(COLORS.BACKGROUND)
+      .onAppear(() => {
+        void this.loadUserInfo(getContext(this));
+      })
     }
     .width('100%')
     .height('100%')
     .backgroundColor(COLORS.BACKGROUND)
-    .onAppear(() => {
-      void this.loadUserInfo(getContext(this));
-    })
   }
 
   @Builder
   HeaderSection() {
-    Row() {
-      // 问候语
-      Text('你好，' + this.userName)
-        .fontSize(26)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(COLORS.TEXT_PRIMARY)
-        .letterSpacing(-0.5)
-
-      Blank()
-
-      // 连续天数徽章
-      Row() {
-        Text('🔥')
-          .fontSize(14)
-
-        Text(this.streakDays.toString() + ' 天')
-          .fontSize(13)
+    Row({ space: 14 }) {
+      Column({ space: 8 }) {
+        Text('你好，' + this.userName)
+          .fontSize(UI.TITLE_SIZE)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#fb923c')
-          .margin({ left: 4 })
+          .fontColor(COLORS.TEXT_PRIMARY)
+          .width('100%')
+        Row({ space: 6 }) {
+          Image($r('app.media.ic_footprint'))
+            .width(16)
+            .height(16)
+            .fillColor(COLORS.PRIMARY)
+          Text('连续学习 ' + this.streakDays.toString() + ' 天')
+            .fontSize(UI.CAPTION_SIZE)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(COLORS.PRIMARY)
+        }
+        .padding({ left: 10, right: 10, top: 7, bottom: 7 })
+        .backgroundColor(UI.GREEN_SOFT)
+        .borderRadius(12)
       }
-      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-      .backgroundColor('rgba(249, 115, 22, 0.15)')
-      .border({ width: 1, color: 'rgba(249, 115, 22, 0.3)', radius: 100 })
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Image($r('app.media.lingai_robot'))
+        .width(76)
+        .height(76)
+        .objectFit(ImageFit.Contain)
     }
     .width('100%')
-    .padding({ left: 24, right: 24, top: 50, bottom: 10 })
+    .alignItems(VerticalAlign.Center)
   }
 
   @Builder
   ProgressSection() {
-    Column() {
+    Row({ space: 18 }) {
       Stack() {
-        // 背景环
-        Circle()
-          .width(160)
-          .height(160)
-          .fill(Color.Transparent)
-          .stroke('rgba(0,0,0,0.06)')
-          .strokeWidth(12)
-
-        // 进度环
         Progress({ value: this.todayProgress, total: 100, type: ProgressType.Ring })
-          .width(160)
-          .height(160)
-          .color('#6366f1')
-          .backgroundColor('transparent')
-          .style({ strokeWidth: 12 })
-
-        // 中间文字
-        Column() {
-          Text(this.todayProgress.toString() + '%')
-            .fontSize(36)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(COLORS.TEXT_PRIMARY)
-
-          Text('今日进度')
-            .fontSize(14)
-            .fontColor(COLORS.TEXT_SECONDARY)
-            .margin({ top: 4 })
-        }
+          .width(88)
+          .height(88)
+          .color(COLORS.PRIMARY)
+          .backgroundColor(UI.GREEN_SOFT)
+          .style({ strokeWidth: 8 })
+        Text(this.todayProgress.toString() + '%')
+          .fontSize(24)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(COLORS.TEXT_PRIMARY)
       }
-      .width(180)
-      .height(180)
+      .width(88)
+      .height(88)
+      Column({ space: 6 }) {
+        Text('今日进度')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(COLORS.TEXT_PRIMARY)
+        Text('跟着小语灵，继续今天的韩语学习')
+          .fontSize(UI.CAPTION_SIZE)
+          .lineHeight(20)
+          .fontColor(COLORS.TEXT_SECONDARY)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
     }
     .width('100%')
-    .alignItems(HorizontalAlign.Center)
-    .margin({ top: 20 })
+    .padding(20)
+    .backgroundColor(COLORS.SURFACE)
+    .borderRadius(UI.CARD_RADIUS)
+    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder
   TaskCards() {
-    Column({ space: 12 }) {
-      // TOPIK 学习卡片
-      Row() {
-        // 左侧图标
-        Column() {
+    Column({ space: 16 }) {
+      Column({ space: 16 }) {
+        Row({ space: 12 }) {
           Image($r('app.media.ic_layers'))
-            .width(24)
-            .height(24)
+            .width(52)
+            .height(52)
             .fillColor(COLORS.PRIMARY)
+            .padding(12)
+            .backgroundColor(UI.GREEN_SOFT)
+            .borderRadius(UI.CONTROL_RADIUS)
+          Column({ space: 5 }) {
+            Text(`TOPIK ${this.currentLevel <= 2 ? 'I' : 'II'} • ${this.lessonTitle}`)
+              .fontSize(19)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(COLORS.TEXT_PRIMARY)
+            Text(this.newWordsCount.toString() + ' 个新词 • 预计 ' + this.estimateMinutes().toString() + ' 分钟')
+              .fontSize(UI.CAPTION_SIZE)
+              .fontColor(COLORS.TEXT_SECONDARY)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
         }
-        .width(48)
-        .height(48)
-        .borderRadius(14)
-        .backgroundColor('rgba(99, 102, 241, 0.15)')
-        .justifyContent(FlexAlign.Center)
-
-        // 中间文字
-        Column() {
-          Text(`TOPIK ${this.currentLevel <= 2 ? 'I' : 'II'} • ${this.lessonTitle}`)
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(COLORS.TEXT_PRIMARY)
-
-          Text(this.newWordsCount.toString() + ' 个新词 • 预计 ' + this.estimateMinutes().toString() + ' 分钟')
-            .fontSize(12)
-            .fontColor(COLORS.TEXT_SECONDARY)
-            .margin({ top: 2 })
-
-          Text(this.lessonQuotaHint())
-            .fontSize(11)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.lessonQuotaTextColor())
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor(this.lessonQuotaBackgroundColor())
-            .borderRadius(999)
-            .margin({ top: 8 })
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        .margin({ left: 16 })
-
-        // 开始按钮
+        .width('100%')
+        Text(this.lessonQuotaHint())
+          .fontSize(UI.CAPTION_SIZE)
+          .lineHeight(20)
+          .fontColor(this.lessonQuotaTextColor())
+          .width('100%')
+          .padding(12)
+          .backgroundColor(this.lessonQuotaBackgroundColor())
+          .borderRadius(12)
         Button('开始')
-          .type(ButtonType.Capsule)
-          .backgroundColor('#0f172a')
-          .fontColor('#ffffff')
-          .fontSize(13)
+          .type(ButtonType.Normal)
+          .backgroundColor(COLORS.PRIMARY)
+          .fontColor(UI.ON_PRIMARY)
+          .fontSize(UI.BODY_SIZE)
           .fontWeight(FontWeight.Bold)
-          .height(36)
-          .padding({ left: 16, right: 16 })
-          .shadow({ radius: 8, color: 'rgba(0,0,0,0.1)', offsetY: 2 })
+          .width('100%')
+          .height(50)
+          .borderRadius(UI.CONTROL_RADIUS)
           .onClick(() => {
             this.startLearning();
           })
       }
       .width('100%')
-      .padding(18)
+      .padding(20)
       .backgroundColor(COLORS.SURFACE)
-      .borderRadius(24)
-      .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+      .borderRadius(UI.CARD_RADIUS)
+      .border({ width: 1, color: COLORS.BORDER })
+      .shadow({ radius: 12, color: UI.SHADOW, offsetY: 4 })
 
-      // 智能复习卡片
-      Row() {
-        // 左侧图标
-        Column() {
-          Image($r('app.media.ic_review'))
-            .width(24)
-            .height(24)
-            .fillColor(COLORS.SUCCESS)
-        }
-        .width(48)
-        .height(48)
-        .borderRadius(14)
-        .backgroundColor('rgba(16, 185, 129, 0.15)')
-        .justifyContent(FlexAlign.Center)
-
-        // 中间文字
-        Column() {
+      Row({ space: 12 }) {
+        Image($r('app.media.ic_review'))
+          .width(48)
+          .height(48)
+          .fillColor(UI.BLUE)
+          .padding(12)
+          .backgroundColor(UI.BLUE_SOFT)
+          .borderRadius(UI.CONTROL_RADIUS)
+        Column({ space: 5 }) {
           Text('智能复习')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
             .fontColor(COLORS.TEXT_PRIMARY)
-
           Text(this.reviewWordsCount.toString() + ' 个单词待复习')
-            .fontSize(12)
+            .fontSize(UI.CAPTION_SIZE)
             .fontColor(COLORS.TEXT_SECONDARY)
-            .margin({ top: 2 })
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
-        .margin({ left: 16 })
-
-        // 去完成按钮
         Button('去完成')
-          .type(ButtonType.Capsule)
-          .backgroundColor(COLORS.SUCCESS)
-          .fontColor('#ffffff')
-          .fontSize(13)
+          .type(ButtonType.Normal)
+          .backgroundColor(UI.BLUE)
+          .fontColor(UI.ON_BLUE)
+          .fontSize(14)
           .fontWeight(FontWeight.Bold)
-          .height(36)
-          .padding({ left: 16, right: 16 })
-          .shadow({ radius: 8, color: 'rgba(16, 185, 129, 0.3)', offsetY: 2 })
+          .height(UI.TOUCH_MIN)
+          .padding({ left: 14, right: 14 })
+          .borderRadius(14)
           .onClick(() => {
             this.startReview();
           })
@@ -379,11 +364,10 @@ export struct HomeContent {
       .width('100%')
       .padding(18)
       .backgroundColor(COLORS.SURFACE)
-      .borderRadius(24)
-      .shadow({ radius: 12, color: 'rgba(148,163,184,0.15)', offsetY: 4 })
+      .borderRadius(UI.CARD_RADIUS)
+      .border({ width: 1, color: COLORS.BORDER })
     }
     .width('100%')
-    .padding({ left: 20, right: 20 })
   }
 
   async startLearning() {
@@ -460,19 +444,19 @@ export struct HomeContent {
       return COLORS.PRIMARY;
     }
     if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
-      return '#b91c1c';
+      return UI.DANGER_TEXT;
     }
     return COLORS.TEXT_SECONDARY;
   }
 
   private lessonQuotaBackgroundColor(): string {
     if (!ApiService.getInstance().getToken()) {
-      return 'rgba(99, 102, 241, 0.12)';
+      return UI.GREEN_SOFT;
     }
     if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
-      return 'rgba(239, 68, 68, 0.12)';
+      return UI.DANGER_SOFT;
     }
-    return 'rgba(15, 23, 42, 0.05)';
+    return UI.SURFACE_MUTED;
   }
 
   private async goLoginTab(navFrom: string): Promise<void> {

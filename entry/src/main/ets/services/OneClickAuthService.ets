@@ -342,12 +342,12 @@ export class OneClickAuthService {
 
         // 顶部导航
         uiConfig.navColor = '#FFFFFF';
-        uiConfig.navFontColor = '#111111';
+        uiConfig.navFontColor = '#173E39';
         uiConfig.navFontSize = 26;
         uiConfig.navMarginTop = 16;
 
         // 号码文本（避免“看不见/位置异常”）
-        uiConfig.numberFontColor = '#111111';
+        uiConfig.numberFontColor = '#173E39';
         uiConfig.numberFontSize = 30;
         uiConfig.numberMargin = { top: 220 };
         uiConfig.numberAlignRuleOption = {
@@ -358,8 +358,8 @@ export class OneClickAuthService {
         // 登录按钮
         uiConfig.loginBtnText = '本机号码一键登录';
         uiConfig.loginBtnFontColor = '#FFFFFF';
-        uiConfig.loginBtnBackGroundColor = '#4F46E5';
-        uiConfig.loginBtnDisableBackGroundColor = '#BDBDF6';
+        uiConfig.loginBtnBackGroundColor = '#137F64';
+        uiConfig.loginBtnDisableBackGroundColor = '#CBE8DC';
         uiConfig.loginBtnHeight = '52vp';
         uiConfig.loginBtnMargin = { left: 24, top: 320, right: 24 };
         uiConfig.loginBtnAlignRuleOption = {
@@ -368,7 +368,7 @@ export class OneClickAuthService {
         };
 
         // 协议区域上移，避免底部被裁
-        uiConfig.privacyFontColor = '#333333';
+        uiConfig.privacyFontColor = '#506F67';
         uiConfig.privacyFontSize = 16;
         uiConfig.privacyMargin = { left: 40, right: 40, bottom: 96 };
         uiConfig.privacyAlignRuleOption = {
