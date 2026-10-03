@@ -6,6 +6,8 @@
 import { router } from '@kit.ArkUI';
 import { COLORS } from '../utils/Constants';
 import { UI } from '../utils/UiTokens';
+import StatisticsService from '../services/StatisticsService';
+import { VocabularyService } from '../services/VocabularyService';
 import { DailyTask } from '../models/DataModels';
 import TaskTrackingService from '../services/TaskTrackingService';
 import ApiService, { ApiError, PhoneAuthStatus } from '../services/ApiService';
@@ -16,6 +18,17 @@ import common from '@ohos.app.ability.common';
 
 @Component
 export struct ProfileContent {
+  onOpenVocabulary: () => void = () => {};
+  onOpenStudy: () => void = () => {};
+  @State totalStudySteps: number = 0;
+  @State savedWords: number = 0;
+  @State studyDays: number = 0;
+  @State summaryLoaded: boolean = false;
+  @State summaryError: string = '';
+  private summaryContext: Context | null = null;
+  private summaryEpoch: number = 0;
+
+  @Prop @Watch('onRefreshVersionChange') refreshVersion: number = 0;
   @Prop externalSheetMode: string = '';
   @Prop @Watch('onExternalSheetRequestChange') externalSheetRequestAt: number = 0;
   @Prop @Watch('onActiveTabIndexChange') activeTabIndex: number = -1;
@@ -50,7 +63,7 @@ export struct ProfileContent {
 
 
   // 任务数据
-  @State lessonCount: number = 13;
+  @State lessonCount: number = 0;
   @State reviewDone: boolean = true;
   @State studyDone: boolean = true;
   @State themeVersion: number = 0;
@@ -71,11 +84,16 @@ export struct ProfileContent {
     return 'rgba(99, 102, 241, 0.15)';
   }
 
+  onRefreshVersionChange(): void {
+    void this.refreshSummary();
+  }
+
   onActiveTabIndexChange(): void {
     if (this.activeTabIndex !== 3) {
       return;
     }
     void this.syncLoginStateFromToken();
+    void this.refreshSummary();
   }
 
   async aboutToAppear() {
@@ -86,6 +104,7 @@ export struct ProfileContent {
     }
 
     const context = getContext(this);
+    this.summaryContext = context;
 
     // 初始化 API 服务并检查登录态
     const apiService = ApiService.getInstance();
@@ -95,12 +114,14 @@ export struct ProfileContent {
     await this.taskService.init(context);
     this.dailyTask = await this.taskService.refreshTask();
     this.lessonCount = this.dailyTask.lessonStepDone;
+    await this.refreshSummary();
 
     if (this.unsubscribeTaskUpdate === null) {
       this.unsubscribeTaskUpdate = this.taskService.subscribeOnUpdate((task: DailyTask) => {
         this.dailyTask = task;
         this.lessonCount = task.lessonStepDone;
         this.taskVersionKey++;
+        void this.refreshSummary();
       });
     }
 
@@ -117,7 +138,7 @@ export struct ProfileContent {
       this.isLoggedIn = true;
       try {
         const userInfo = await apiService.getCurrentUserInfo();
-        this.userName = userInfo.phone || userInfo.nickname || '点击登录/注册';
+        this.userName = userInfo.nickname || userInfo.phone || '点击登录/注册';
         this.userAvatar = userInfo.avatar;
         
         if (userInfo.memberLevel === 'PRO') {
@@ -387,33 +408,31 @@ export struct ProfileContent {
   build() {
     Stack() {
       Column() {
+        Column({ space: 6 }) {
+          Text('我的学习生活')
+            .fontSize(UI.TITLE_SIZE)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(COLORS.TEXT_PRIMARY)
+          Text('记录每一次小小的进步')
+            .fontSize(13)
+            .fontColor(COLORS.TEXT_SECONDARY)
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 22 })
+        .backgroundColor(COLORS.SURFACE)
         Scroll() {
           Column({ space: 20 }) {
-            Row() {
-              Column({ space: 6 }) {
-                Text('我的学习')
-                  .fontSize(UI.TITLE_SIZE)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(COLORS.TEXT_PRIMARY)
-                Text('今天也向韩语更近一点')
-                  .fontSize(14)
-                  .fontColor(COLORS.TEXT_SECONDARY)
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-              Image($r('app.media.lingai_robot'))
-                .width(64)
-                .height(64)
-                .objectFit(ImageFit.Contain)
-            }
-            .width('100%')
-            .margin({ bottom: 4 })
-
             // 用户信息卡片
             this.UserCard()
 
             // VIP 横幅
             this.VIPBanner()
+
+            this.SummaryLinks()
+            if (this.summaryError.length > 0) {
+              Text(this.summaryError).fontSize(12).fontColor(UI.DANGER_TEXT).width('100%')
+            }
 
             // 今日任务标签
             Text('今日任务')
@@ -430,13 +449,14 @@ export struct ProfileContent {
             this.MenuList()
           }
           .width('100%')
-          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 0, bottom: 192 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 8, bottom: 24 })
         }
         .width('100%')
         .layoutWeight(1)
-        .margin({ top: UI.CONTENT_TOP })
         .clipContent(ContentClipMode.CONTENT_ONLY)
         .scrollBar(BarState.Off)
+        // 固定留出导航和助手空间，列表中段也不会被遮住。
+        Blank().height(UI.NAV_HEIGHT + 76)
       }
       .width('100%')
       .height('100%')
@@ -444,6 +464,7 @@ export struct ProfileContent {
       .onAppear(() => {
         // Tabs 切换返回时强制同步，避免登录态 UI 残留
         this.syncLoginStateFromToken();
+        void this.refreshSummary();
         this.tryOpenExternalSheet();
       })
       .bindSheet($$this.showMainSheet, this.MainSheetBuilder(), {
@@ -485,69 +506,62 @@ export struct ProfileContent {
     .height('100%')
   }
 
+  private async refreshSummary(): Promise<void> {
+    const context = this.summaryContext;
+    if (context === null) return;
+    const epoch = ++this.summaryEpoch;
+    try {
+      await this.taskService.init(context);
+      await VocabularyService.getInstance().init(context);
+      const overview = await StatisticsService.getInstance().getOverview();
+      if (epoch !== this.summaryEpoch) return;
+      this.totalStudySteps = overview.lessonsCompleted;
+      this.studyDays = overview.studyDays;
+      this.savedWords = VocabularyService.getInstance().getWordCount();
+      this.summaryLoaded = true;
+      this.summaryError = '';
+    } catch (_error) {
+      if (epoch !== this.summaryEpoch) return;
+      this.summaryError = '学习记录暂时无法读取，请稍后重试';
+      console.warn('[ProfileContent] Refresh summary failed');
+    }
+  }
+
   @Builder
   UserCard() {
-    Column({ space: 18 }) {
-      Row() {
-        Stack({ alignContent: Alignment.BottomEnd }) {
-          Column() {
-            Image($r('app.media.ic_mine'))
-              .width(26)
-              .height(26)
-              .fillColor(COLORS.PRIMARY)
-          }
-          .width(60)
-          .height(60)
-          .borderRadius(20)
-          .backgroundColor(COLORS.SURFACE)
-          .justifyContent(FlexAlign.Center)
-
-          if (this.isPro) {
-            Text('Pro')
-              .fontSize(11)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(UI.WARM)
-              .padding({ left: 7, right: 7, top: 4, bottom: 4 })
-              .backgroundColor(UI.WARM_SOFT)
-              .borderRadius(8)
-          }
-        }
-
-        Column({ space: 6 }) {
-          Text(this.userName)
-            .fontSize(19)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(COLORS.TEXT_PRIMARY)
-            .maxLines(2)
-          Text(this.userStatus)
-            .fontSize(13)
-            .lineHeight(20)
-            .fontColor(this.isPro ? UI.WARM : COLORS.TEXT_SECONDARY)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        .margin({ left: 16 })
-
-        Image($r('app.media.ic_arrow_right'))
-          .width(20)
-          .height(20)
+    Row({ space: 15 }) {
+      Stack() {
+        Image($r('app.media.ic_mine'))
+          .width(28)
+          .height(28)
           .fillColor(COLORS.PRIMARY)
       }
-      .width('100%')
-
-      Divider()
-        .color('rgba(19,127,100,0.12)')
-
-      Text('账号与学习权益')
-        .fontSize(13)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(COLORS.PRIMARY)
-        .width('100%')
+      .width(66)
+      .height(66)
+      .borderRadius(23)
+      .backgroundColor(UI.GREEN_SOFT)
+      Column({ space: 6 }) {
+        Text(this.isLoggedIn ? this.userName : '欢迎来到 LingAI')
+          .fontSize(23)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(COLORS.TEXT_PRIMARY)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.isLoggedIn ? this.userStatus : '登录后，留住每一次进步')
+          .fontSize(13)
+          .lineHeight(20)
+          .fontColor(COLORS.TEXT_SECONDARY)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Image($r('app.media.ic_arrow_right'))
+        .width(UI.TOUCH_MIN)
+        .height(UI.TOUCH_MIN)
+        .padding(12)
+        .fillColor(COLORS.TEXT_SECONDARY)
     }
     .width('100%')
-    .padding(22)
-    .backgroundColor(UI.GREEN_SOFT)
-    .borderRadius(UI.CARD_RADIUS)
+    .padding({ top: 4, bottom: 4 })
     .onClick(() => {
       if (this.isLoggedIn) {
         void this.goMemberPage();
@@ -559,163 +573,136 @@ export struct ProfileContent {
 
   @Builder
   VIPBanner() {
-    if (!this.isPro) {
-      Row({ space: 12 }) {
-        Image($r('app.media.ic_study'))
-          .width(24)
-          .height(24)
-          .fillColor(UI.BLUE)
-        Column({ space: 4 }) {
-          Text('LingAI Pro 即将上线')
-            .fontSize(15)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(COLORS.TEXT_PRIMARY)
-          Text('先把今天的学习做好')
-            .fontSize(12)
-            .fontColor(COLORS.TEXT_SECONDARY)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-
-        Button('详情')
-          .type(ButtonType.Normal)
-          .backgroundColor(COLORS.SURFACE)
-          .fontColor(UI.BLUE)
-          .fontSize(13)
+    Row({ space: 13 }) {
+      Image($r('app.media.ic_study'))
+        .width(22)
+        .height(22)
+        .fillColor(COLORS.PRIMARY)
+      Column({ space: 4 }) {
+        Text('让每一次练习都更从容')
+          .fontSize(15)
           .fontWeight(FontWeight.Bold)
-          .height(UI.TOUCH_MIN)
-          .borderRadius(14)
-          .padding({ left: 16, right: 16 })
-          .onClick(() => {
-            this.openMainSheet('vip');
-          })
+          .fontColor(COLORS.TEXT_PRIMARY)
+        Text('会员权益与今日可用额度')
+          .fontSize(12)
+          .fontColor(COLORS.PRIMARY)
       }
-      .width('100%')
-      .padding(18)
-      .borderRadius(20)
-      .backgroundColor(UI.BLUE_SOFT)
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      Image($r('app.media.ic_arrow_right'))
+        .width(18)
+        .height(18)
+        .fillColor(COLORS.PRIMARY)
+    }
+    .width('100%')
+    .padding(18)
+    .borderRadius(18)
+    .backgroundColor(UI.GREEN_SOFT)
+    .onClick(() => {
+      if (this.isLoggedIn) {
+        void this.goMemberPage();
+      } else {
+        this.openMainSheet('login');
+      }
+    })
+  }
+
+  @Builder
+  SummaryLinks() {
+    Row() {
+      this.SummaryItem('steps', '学习步骤', false)
+      Divider().vertical(true).height(36).color(COLORS.BORDER)
+      this.SummaryItem('words', '收藏单词', true)
+      Divider().vertical(true).height(36).color(COLORS.BORDER)
+      this.SummaryItem('days', '学习天数', false)
+    }
+    .width('100%')
+    .padding({ top: 4, bottom: 4 })
+  }
+
+  @Builder
+  SummaryItem(field: string, label: string, vocabulary: boolean) {
+    Column({ space: 6 }) {
+      Text(!this.summaryLoaded ? '…' : field === 'steps' ? this.totalStudySteps.toString() : field === 'words' ? this.savedWords.toString() : this.studyDays.toString()).fontSize(23).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+      Text(label).fontSize(12).fontColor(COLORS.TEXT_SECONDARY)
+    }
+    .layoutWeight(1)
+    .constraintSize({ minHeight: 67 })
+    .justifyContent(FlexAlign.Center)
+    .onClick(() => {
+      if (vocabulary) {
+        this.openVocabulary();
+      } else {
+        this.getUIContext().getRouter().pushUrl({ url: 'pages/StatisticsPage' });
+      }
+    })
+  }
+
+  private openVocabulary(): void {
+    if (this.isLoggedIn) {
+      this.onOpenVocabulary();
+    } else {
+      this.openMainSheet('login');
     }
   }
 
   @Builder
   TaskStatsCard() {
-    Row() {
-      Column({ space: 8 }) {
-        Text(this.lessonCount.toString())
-          .fontSize(28)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.PRIMARY)
-        Text('推进')
-          .fontSize(13)
-          .fontColor(COLORS.TEXT_SECONDARY)
-      }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Center)
-
-      Column({ space: 8 }) {
-        Row({ space: 6 }) {
-          Text(this.dailyTask.reviewCount.toString())
-            .fontSize(28)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(UI.BLUE)
-          if (this.reviewDone) {
-            Image($r('app.media.ic_check'))
-              .width(14)
-              .height(14)
-              .fillColor(COLORS.SUCCESS)
-          } else {
-            Text('-')
-              .fontSize(14)
-              .fontColor(COLORS.TEXT_HINT)
-          }
-        }
-        Text('复习')
-          .fontSize(13)
-          .fontColor(COLORS.TEXT_SECONDARY)
-      }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Center)
-
-      Column({ space: 8 }) {
-        Row({ space: 6 }) {
-          Text(this.dailyTask.studyMinutes.toString())
-            .fontSize(28)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(COLORS.PRIMARY)
-          if (this.studyDone) {
-            Image($r('app.media.ic_check'))
-              .width(14)
-              .height(14)
-              .fillColor(COLORS.SUCCESS)
-          } else {
-            Text('-')
-              .fontSize(14)
-              .fontColor(COLORS.TEXT_HINT)
-          }
-        }
-        Text('学习分钟')
-          .fontSize(13)
-          .fontColor(COLORS.TEXT_SECONDARY)
-      }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Center)
+    Column() {
+      this.MenuItem('完成一个关卡步骤', $r('app.media.ic_study'), 'lesson', () => {
+        this.onOpenStudy();
+      })
+      this.MenuItem('复习单词', $r('app.media.ic_review'), 'review', () => {
+        this.openVocabulary();
+      })
     }
     .width('100%')
-    .padding({ top: 24, bottom: 24 })
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(UI.CARD_RADIUS)
-    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder
   MenuList() {
-    Column({ space: 12 }) {
-      // 学习统计
-      this.MenuItem('学习统计', $r('app.media.ic_stats'), '#6366f1', () => {
+    Column() {
+      this.MenuItem('学习统计', $r('app.media.ic_stats'), '', () => {
         router.pushUrl({ url: 'pages/StatisticsPage' });
       })
-
-      // 设置
-      this.MenuItem('设置', $r('app.media.ic_settings'), '#06b6d4', () => {
+      this.MenuItem('我的生词本', $r('app.media.ic_bookmark'), 'words', () => {
+        this.openVocabulary();
+      })
+      this.MenuItem('设置', $r('app.media.ic_settings'), '', () => {
         router.pushUrl({ url: 'pages/SettingsPage' });
       })
+      Text('你好好学习，小灵陪你慢慢来。')
+        .fontSize(12)
+        .fontColor(COLORS.TEXT_SECONDARY)
+        .width('100%')
+        .margin({ top: 22 })
     }
     .width('100%')
   }
 
   @Builder
-  MenuItem(title: string, icon: Resource, iconColor: string, onClick: () => void) {
-    Row() {
-      Column() {
-        Image(icon)
-          .width(22)
-          .height(22)
-          .fillColor(UI.BLUE)
-      }
-      .width(48)
-      .height(48)
-      .borderRadius(16)
-      .backgroundColor(UI.BLUE_SOFT)
-      .justifyContent(FlexAlign.Center)
-
+  MenuItem(title: string, icon: Resource, detailField: string, onClick: () => void) {
+    Row({ space: 12 }) {
+      Image(icon)
+        .width(20)
+        .height(20)
+        .fillColor(COLORS.PRIMARY)
       Text(title)
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
+        .fontSize(15)
         .fontColor(COLORS.TEXT_PRIMARY)
-        .margin({ left: 16 })
-
-      Blank()
-
+        .layoutWeight(1)
+      Text(detailField === 'words' ? (this.summaryLoaded ? `${this.savedWords} 个` : '…') : detailField === 'lesson' ? `${Math.min(1, this.dailyTask.lessonStepDone)} / 1` : detailField === 'review' ? `${this.dailyTask.reviewCount} / 20` : '')
+        .fontSize(12)
+        .fontColor(COLORS.TEXT_SECONDARY)
       Image($r('app.media.ic_arrow_right'))
-        .width(18)
-        .height(18)
+        .width(16)
+        .height(16)
         .fillColor(COLORS.TEXT_HINT)
     }
     .width('100%')
-    .padding(18)
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(20)
-    .border({ width: 1, color: COLORS.BORDER })
+    .constraintSize({ minHeight: 62 })
+    .padding({ top: 14, bottom: 14 })
+    .border({ width: { bottom: 1 }, color: COLORS.BORDER })
     .onClick(onClick)
   }
 

@@ -22,7 +22,14 @@ class IndexRouteParams {
 
 @Component
 export struct HomeContent {
+  @Prop @Watch('onRefreshVersion') refreshVersion: number = 0;
+  @Prop @Watch('onActiveTabChange') activeTabIndex: number = -1;
+  onOpenVocabulary?: () => void;
   @State userName: string = '';
+  @State authReady: boolean = false;
+  @State isLoggedIn: boolean = false;
+  @State quotaReady: boolean = false;
+  @State quotaLoadFailed: boolean = false;
   @State streakDays: number = 0;
   @State todayProgress: number = 0;
   @State dailyTask: DailyTask = new DailyTask();
@@ -32,15 +39,35 @@ export struct HomeContent {
   @State currentLevel: number = 1;
   @State currentLessonId: number = 1;
   @State lessonTitle: string = '关卡 1';
+  @State courseComplete: boolean = false;
+  @State lessonInfoReady: boolean = false;
   @State userInfo: UserInfo = new UserInfo();
   @State themeVersion: number = 0;
 
   private isNavigating: boolean = false;
+  private learningSnapshotRequest: number = 0;
   private navigatingToLogin: boolean = false;
   private taskService: TaskTrackingService = TaskTrackingService.getInstance();
   private unsubscribeTheme: (() => void) | null = null;
   private unsubscribeTaskUpdate: (() => void) | null = null;
   
+  onRefreshVersion(): void {
+    const context = this.getUIContext().getHostContext();
+    if (!context) { return; }
+    void this.refreshLearningSnapshot(context);
+    void this.loadUserInfo(context);
+  }
+
+  onActiveTabChange(): void {
+    if (this.activeTabIndex === 0) {
+      const context = this.getUIContext().getHostContext();
+      if (!context) { return; }
+      void this.refreshLearningSnapshot(context);
+      void this.loadUserInfo(context);
+      void this.taskService.refreshTask();
+    }
+  }
+
   private async refreshLearningSnapshot(context: Context) {
     await this.loadLearningProgress(context);
     this.streakDays = await this.taskService.getStreakDays();
@@ -66,7 +93,8 @@ export struct HomeContent {
       });
     }
 
-    const context = getContext(this);
+    const context = this.getUIContext().getHostContext();
+    if (!context) { return; }
     await this.taskService.init(context);
     this.dailyTask = await this.taskService.refreshTask();
     this.refreshHomeStats();
@@ -92,7 +120,7 @@ export struct HomeContent {
   private refreshHomeStats() {
     // 今日进度
     this.todayProgress = this.taskService.calculateTodayProgress();
-    // 复习词数 — 直接取任务中真实值
+    // 复习词数 - 直接取任务中真实值
     this.reviewWordsCount = this.dailyTask.reviewCount;
   }
 
@@ -100,20 +128,28 @@ export struct HomeContent {
    * 从后端获取用户信息，失败时使用默认值
    */
   private async loadUserInfo(context: Context) {
+    this.quotaReady = false;
+    this.quotaLoadFailed = false;
     try {
       const api = ApiService.getInstance();
       await api.init(context);
-      if (!api.getToken()) {
+      this.isLoggedIn = api.getToken().length > 0;
+      this.authReady = true;
+      if (!this.isLoggedIn) {
         this.userName = '小灵友';
         this.userInfo = new UserInfo();
         return;
       }
       const userInfo = await api.getCurrentUserInfo();
       this.userInfo = userInfo;
+      this.quotaReady = true;
       this.userName = this.resolveFriendlyUserName(userInfo.nickname, userInfo.phone);
     } catch (e) {
-      console.warn('[HomeContent] loadUserInfo failed, using default');
+      console.warn('[HomeContent] account or quota information unavailable');
       const api = ApiService.getInstance();
+      this.isLoggedIn = api.getToken().length > 0;
+      this.authReady = true;
+      this.quotaLoadFailed = true;
       this.userInfo = new UserInfo();
       if (!api.getToken()) {
         this.userName = '小灵友';
@@ -128,35 +164,63 @@ export struct HomeContent {
    * 首页不预取真实关卡词表，避免浏览首页时提前消耗正式额度。
    */
   private async loadLearningProgress(context: Context) {
+    const request = ++this.learningSnapshotRequest;
+    this.lessonInfoReady = false;
+    let level = 1;
+    let lesson = 1;
     try {
       const prefService = PreferencesService.getInstance();
       await prefService.init(context);
       const state = await prefService.getLearningState();
-      this.currentLevel = state.currentLevel;
-      this.currentLessonId = state.currentLesson;
-      this.lessonTitle = `关卡 ${this.currentLessonId}`;
-    } catch (e) {
-      console.warn('[HomeContent] loadLearningProgress pref failed, using defaults');
+      level = state.currentLevel;
+      lesson = state.currentLesson;
+    } catch (error) {
+      console.warn('[HomeContent] learning state unavailable');
     }
 
-    // 读取用户设置的每关单词数
     let wordsPerLesson = WORDS_PER_LESSON;
     try {
-      const context2 = getContext(this);
-      const pref = await preferences.getPreferences(context2, 'user_settings');
+      const pref = await preferences.getPreferences(context, 'user_settings');
       wordsPerLesson = await pref.get('wordsPerLesson', WORDS_PER_LESSON) as number;
-    } catch (_e) {
-      // 使用默认值
+    } catch (error) {
+      // 沿用已定义默认值，不改变保存的学习设置。
     }
 
     const api = ApiService.getInstance();
     await api.init(context);
-    if (!api.getToken()) {
+    if (request !== this.learningSnapshotRequest) { return; }
+    this.isLoggedIn = api.getToken().length > 0;
+    this.authReady = true;
+    if (!this.isLoggedIn) {
       this.newWordsCount = 0;
+      this.courseComplete = false;
       return;
     }
 
-    this.newWordsCount = wordsPerLesson;
+    try {
+      const info = await api.getLevelInfo();
+      if (request !== this.learningSnapshotRequest) { return; }
+      for (const raw of info.levels) {
+        const course = raw as Record<string, Object>;
+        if (course['level'] as number === level) {
+          const wordCount = (course['word_count'] as number) || 0;
+          const total = wordCount > 0 ? Math.ceil(wordCount / wordsPerLesson) : (course['lesson_count'] as number) || 0;
+          if (total > 0) {
+            const displayLesson = Math.min(lesson, total);
+            this.currentLevel = level;
+            this.currentLessonId = displayLesson;
+            this.courseComplete = lesson > total;
+            this.lessonTitle = `关卡 ${displayLesson}`;
+            this.newWordsCount = wordCount > 0 ? Math.min(wordsPerLesson, wordCount - (displayLesson - 1) * wordsPerLesson) : wordsPerLesson;
+            this.lessonInfoReady = true;
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      if (request !== this.learningSnapshotRequest) { return; }
+      console.warn('[HomeContent] course metadata unavailable');
+    }
   }
 
   aboutToDisappear() {
@@ -170,209 +234,143 @@ export struct HomeContent {
     }
   }
 
+  private courseName(): string {
+    return this.currentLevel === 0 ? '必备单词' : (this.currentLevel === 2 ? 'TOPIK II' : 'TOPIK I');
+  }
+
   build() {
     Column() {
+      this.HeaderSection()
       Scroll() {
-        Column({ space: UI.SECTION_GAP }) {
-          this.HeaderSection()
+        Column({ space: 24 }) {
           this.ProgressSection()
-          Column({ space: 14 }) {
-            Text('今日任务')
-              .fontSize(20)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(COLORS.TEXT_PRIMARY)
-              .width('100%')
-            this.TaskCards()
-          }
-          .width('100%')
+          this.TaskCards()
+          Text('每天认识一点，\n把韩语带进今天。')
+            .fontSize(13).lineHeight(21).fontColor(COLORS.TEXT_SECONDARY).width('100%')
         }
         .width('100%')
-        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 0, bottom: 192 })
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 20, bottom: 170 })
       }
-      .width('100%')
-      .layoutWeight(1)
-      .margin({ top: UI.CONTENT_TOP })
-      .clip(true)
-      .clipContent(ContentClipMode.CONTENT_ONLY)
-      .scrollBar(BarState.Off)
-      .backgroundColor(COLORS.BACKGROUND)
-      .onAppear(() => {
-        void this.loadUserInfo(getContext(this));
-      })
+      .width('100%').layoutWeight(1).clip(true)
+      .clipContent(ContentClipMode.CONTENT_ONLY).scrollBar(BarState.Off)
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(COLORS.BACKGROUND)
+    .width('100%').height('100%').backgroundColor(COLORS.BACKGROUND)
   }
 
   @Builder
   HeaderSection() {
-    Row({ space: 14 }) {
-      Column({ space: 8 }) {
+    Column({ space: 9 }) {
+      Row() {
         Text('你好，' + this.userName)
-          .fontSize(UI.TITLE_SIZE)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
-          .width('100%')
-        Row({ space: 6 }) {
-          Image($r('app.media.ic_footprint'))
-            .width(16)
-            .height(16)
-            .fillColor(COLORS.PRIMARY)
-          Text('连续学习 ' + this.streakDays.toString() + ' 天')
-            .fontSize(UI.CAPTION_SIZE)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(COLORS.PRIMARY)
-        }
-        .padding({ left: 10, right: 10, top: 7, bottom: 7 })
-        .backgroundColor(UI.GREEN_SOFT)
-        .borderRadius(12)
+          .fontSize(UI.TITLE_SIZE).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+          .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text('LingAI').fontSize(13).fontWeight(FontWeight.Bold).fontColor(COLORS.PRIMARY)
+      }.width('100%')
+      Row({ space: 6 }) {
+        Image($r('app.media.ic_footprint')).width(14).height(14).fillColor(COLORS.PRIMARY)
+        Text('连续学习 ' + this.streakDays + ' 天').fontSize(12).fontColor(COLORS.TEXT_SECONDARY)
       }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      Image($r('app.media.lingai_robot'))
-        .width(76)
-        .height(76)
-        .objectFit(ImageFit.Contain)
     }
-    .width('100%')
-    .alignItems(VerticalAlign.Center)
+    .alignItems(HorizontalAlign.Start).width('100%')
+    .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 18 })
+    .backgroundColor(COLORS.SURFACE)
+  }
+
+  private goalValue(field: string): number {
+    if (field === 'step') { return this.dailyTask.lessonStepDone; }
+    if (field === 'review') { return this.dailyTask.reviewCount; }
+    return this.dailyTask.studyMinutes;
+  }
+
+  @Builder
+  GoalItem(label: string, field: string, total: number, unit: string) {
+    Column({ space: 8 }) {
+      Text(label).fontSize(11).fontColor(COLORS.TEXT_SECONDARY)
+      Text(`${Math.min(this.goalValue(field), total)} / ${total} ${unit}`)
+        .fontSize(13).fontWeight(FontWeight.Medium).fontColor(COLORS.TEXT_PRIMARY)
+      Progress({ value: Math.min(this.goalValue(field), total), total: total, type: ProgressType.Linear })
+        .width('100%').height(6)
+        .style({ strokeWidth: 6, enableSmoothEffect: true, enableScanEffect: this.goalValue(field) > 0 && this.goalValue(field) < total })
+        .color(this.goalValue(field) >= total ? COLORS.PRIMARY : (this.goalValue(field) > 0 ? UI.BLUE : COLORS.TEXT_HINT))
+        .backgroundColor(this.goalValue(field) > 0 && this.goalValue(field) < total ? UI.BLUE_SOFT : UI.SURFACE_MUTED)
+    }.alignItems(HorizontalAlign.Start).layoutWeight(1)
   }
 
   @Builder
   ProgressSection() {
-    Row({ space: 18 }) {
-      Stack() {
-        Progress({ value: this.todayProgress, total: 100, type: ProgressType.Ring })
-          .width(88)
-          .height(88)
-          .color(COLORS.PRIMARY)
-          .backgroundColor(UI.GREEN_SOFT)
-          .style({ strokeWidth: 8 })
-        Text(this.todayProgress.toString() + '%')
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
-      }
-      .width(88)
-      .height(88)
-      Column({ space: 6 }) {
-        Text('今日进度')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
-        Text('跟着小语灵，继续今天的韩语学习')
-          .fontSize(UI.CAPTION_SIZE)
-          .lineHeight(20)
-          .fontColor(COLORS.TEXT_SECONDARY)
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-    }
-    .width('100%')
-    .padding(20)
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(UI.CARD_RADIUS)
-    .border({ width: 1, color: COLORS.BORDER })
+    Column({ space: 15 }) {
+      Row() {
+        Text('今日目标').fontSize(15).fontWeight(FontWeight.Medium).fontColor(COLORS.TEXT_PRIMARY)
+        Blank()
+        Text(this.todayProgress >= 100 ? '已完成 100%' : `${this.todayProgress}%`)
+          .fontSize(14).fontWeight(FontWeight.Medium)
+          .fontColor(this.todayProgress >= 100 ? COLORS.PRIMARY : COLORS.TEXT_PRIMARY)
+      }.width('100%')
+      Row({ space: 13 }) {
+        this.GoalItem('关卡步骤', 'step', 1, '步')
+        this.GoalItem('复习单词', 'review', 20, '个')
+        this.GoalItem('学习时长', 'minutes', 10, '分')
+      }.width('100%')
+    }.width('100%')
   }
 
   @Builder
   TaskCards() {
-    Column({ space: 16 }) {
+    Column({ space: 12 }) {
       Column({ space: 16 }) {
+        Row() {
+          Text(this.courseName()).fontSize(13).fontWeight(FontWeight.Medium).fontColor(COLORS.PRIMARY)
+          Blank()
+          Text(this.lessonTitle).fontSize(13).fontColor(COLORS.TEXT_SECONDARY)
+        }.width('100%')
+        Text(this.courseComplete ? '这个课程，已学完一遍' : (this.todayProgress === 0 ? '从这一关开始' : '接着上次，继续学'))
+          .fontSize(28).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY).width('100%')
+        Text('按自己的节奏，认识新的韩语表达。')
+          .fontSize(14).lineHeight(22).fontColor(COLORS.TEXT_SECONDARY).width('100%')
+        Text(!this.authReady ? '正在加载学习信息' : !this.isLoggedIn ? '登录后开始今天的学习' : this.newWordsCount > 0 ? `本关 ${this.newWordsCount} 个词 · 约 ${this.estimateMinutes()} 分钟` : '准备当前课程，按自己的节奏开始。')
+          .fontSize(12).fontColor(COLORS.TEXT_SECONDARY).width('100%')
+        Button(this.learningActionLabel())
+          .enabled(this.authReady)
+          .type(ButtonType.Normal).width('100%').height(52).borderRadius(UI.CONTROL_RADIUS)
+          .backgroundColor(COLORS.PRIMARY).fontColor(UI.ON_PRIMARY).fontSize(16).fontWeight(FontWeight.Bold)
+          .onClick(() => { this.startLearning(); })
+      }
+      .width('100%').padding(21).backgroundColor(COLORS.SURFACE)
+      .border({ width: 1, color: COLORS.BORDER }).borderRadius(UI.CARD_RADIUS).clip(true)
+      Text(this.lessonQuotaHint()).fontSize(11).lineHeight(18).fontColor(this.lessonQuotaTextColor()).width('100%')
+      Column({ space: 12 }) {
         Row({ space: 12 }) {
-          Image($r('app.media.ic_layers'))
-            .width(52)
-            .height(52)
-            .fillColor(COLORS.PRIMARY)
-            .padding(12)
-            .backgroundColor(UI.GREEN_SOFT)
-            .borderRadius(UI.CONTROL_RADIUS)
-          Column({ space: 5 }) {
-            Text(`TOPIK ${this.currentLevel <= 2 ? 'I' : 'II'} • ${this.lessonTitle}`)
-              .fontSize(19)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(COLORS.TEXT_PRIMARY)
-            Text(this.newWordsCount.toString() + ' 个新词 • 预计 ' + this.estimateMinutes().toString() + ' 分钟')
-              .fontSize(UI.CAPTION_SIZE)
-              .fontColor(COLORS.TEXT_SECONDARY)
-          }
-          .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1)
-        }
-        .width('100%')
-        Text(this.lessonQuotaHint())
-          .fontSize(UI.CAPTION_SIZE)
-          .lineHeight(20)
-          .fontColor(this.lessonQuotaTextColor())
-          .width('100%')
-          .padding(12)
-          .backgroundColor(this.lessonQuotaBackgroundColor())
-          .borderRadius(12)
-        Button('开始')
-          .type(ButtonType.Normal)
-          .backgroundColor(COLORS.PRIMARY)
-          .fontColor(UI.ON_PRIMARY)
-          .fontSize(UI.BODY_SIZE)
-          .fontWeight(FontWeight.Bold)
-          .width('100%')
-          .height(50)
-          .borderRadius(UI.CONTROL_RADIUS)
-          .onClick(() => {
-            this.startLearning();
-          })
+          Column({ space: 6 }) {
+            Text('智能复习').fontSize(17).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+            Text(`今日已复习 ${this.reviewWordsCount} 个单词`).fontSize(12).fontColor(COLORS.TEXT_SECONDARY)
+          }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+          Button('去复习 ›').enabled(this.authReady).type(ButtonType.Normal).height(44).borderRadius(12)
+            .backgroundColor(UI.GREEN_SOFT).fontColor(COLORS.PRIMARY).fontSize(13)
+            .onClick(() => { this.startReview(); })
+        }.width('100%')
+        Text('把想记住的词，再看一遍。').fontSize(13).fontColor(COLORS.TEXT_SECONDARY).width('100%')
       }
-      .width('100%')
-      .padding(20)
-      .backgroundColor(COLORS.SURFACE)
-      .borderRadius(UI.CARD_RADIUS)
-      .border({ width: 1, color: COLORS.BORDER })
-      .shadow({ radius: 12, color: UI.SHADOW, offsetY: 4 })
+      .width('100%').padding({ top: 20, bottom: 20 }).margin({ top: 8 })
+      .border({ width: { top: 1, bottom: 1 }, color: COLORS.BORDER })
+    }.width('100%')
+  }
 
-      Row({ space: 12 }) {
-        Image($r('app.media.ic_review'))
-          .width(48)
-          .height(48)
-          .fillColor(UI.BLUE)
-          .padding(12)
-          .backgroundColor(UI.BLUE_SOFT)
-          .borderRadius(UI.CONTROL_RADIUS)
-        Column({ space: 5 }) {
-          Text('智能复习')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(COLORS.TEXT_PRIMARY)
-          Text(this.reviewWordsCount.toString() + ' 个单词待复习')
-            .fontSize(UI.CAPTION_SIZE)
-            .fontColor(COLORS.TEXT_SECONDARY)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        Button('去完成')
-          .type(ButtonType.Normal)
-          .backgroundColor(UI.BLUE)
-          .fontColor(UI.ON_BLUE)
-          .fontSize(14)
-          .fontWeight(FontWeight.Bold)
-          .height(UI.TOUCH_MIN)
-          .padding({ left: 14, right: 14 })
-          .borderRadius(14)
-          .onClick(() => {
-            this.startReview();
-          })
-      }
-      .width('100%')
-      .padding(18)
-      .backgroundColor(COLORS.SURFACE)
-      .borderRadius(UI.CARD_RADIUS)
-      .border({ width: 1, color: COLORS.BORDER })
-    }
-    .width('100%')
+  private learningActionLabel(): string {
+    if (!this.authReady) { return '正在加载账号'; }
+    if (!this.isLoggedIn) { return '登录后开始学习'; }
+    if (!this.lessonInfoReady) { return '重新加载课程'; }
+    if (this.courseComplete) { return '再练习一遍'; }
+    return this.currentLessonId > 1 || this.todayProgress > 0 ? '继续学习' : '开始学习';
   }
 
   async startLearning() {
     if (!ApiService.getInstance().getToken()) {
       await this.goLoginTab('home_start_learning');
+      return;
+    }
+    if (!this.lessonInfoReady) {
+      const context = this.getUIContext().getHostContext();
+      if (context) { await this.loadLearningProgress(context); }
       return;
     }
     if (this.isNavigating) return;
@@ -398,22 +396,8 @@ export struct HomeContent {
       await this.goLoginTab('home_start_review');
       return;
     }
-    if (this.isNavigating) return;
-    this.isNavigating = true;
-    try {
-      await router.pushUrl({
-        url: 'pages/LessonPage',
-        params: {
-          lessonId: this.currentLessonId,
-          level: this.currentLevel,
-          title: '智能复习',
-          isReview: true
-        }
-      });
-    } catch (e) {
-      console.error('[HomeContent] navigation failed:', e);
-    } finally {
-      this.isNavigating = false;
+    if (this.onOpenVocabulary) {
+      this.onOpenVocabulary();
     }
   }
 
@@ -427,20 +411,25 @@ export struct HomeContent {
   }
 
   private lessonQuotaHint(): string {
-    if (!ApiService.getInstance().getToken()) {
+    if (!this.authReady) { return '正在加载账号信息'; }
+    if (!this.isLoggedIn) {
       return '登录后可解锁今日 2 关学习额度';
+    }
+    if (!this.quotaReady) {
+      return this.quotaLoadFailed ? '学习额度暂时无法读取，请稍后重试。' : '正在加载今日学习额度';
     }
     if (this.userInfo.dailyLessonLimit <= 0) {
       return '当前会员今日学习不限量';
     }
     if (this.userInfo.dailyLessonRemaining <= 0) {
-      return `今日额度已用完 · 已完成 ${this.userInfo.dailyLessonUsed}/${this.userInfo.dailyLessonLimit} 关`;
+      return `今日额度已用完 · 已使用 ${this.userInfo.dailyLessonUsed}/${this.userInfo.dailyLessonLimit} 关额度`;
     }
     return `今日还可学习 ${this.userInfo.dailyLessonRemaining}/${this.userInfo.dailyLessonLimit} 关`;
   }
 
   private lessonQuotaTextColor(): string {
-    if (!ApiService.getInstance().getToken()) {
+    if (!this.authReady || !this.quotaReady) { return COLORS.TEXT_SECONDARY; }
+    if (!this.isLoggedIn) {
       return COLORS.PRIMARY;
     }
     if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {
@@ -450,7 +439,8 @@ export struct HomeContent {
   }
 
   private lessonQuotaBackgroundColor(): string {
-    if (!ApiService.getInstance().getToken()) {
+    if (!this.authReady || !this.quotaReady) { return UI.SURFACE_MUTED; }
+    if (!this.isLoggedIn) {
       return UI.GREEN_SOFT;
     }
     if (this.userInfo.dailyLessonLimit > 0 && this.userInfo.dailyLessonRemaining <= 0) {

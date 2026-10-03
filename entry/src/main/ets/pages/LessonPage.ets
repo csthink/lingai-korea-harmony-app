@@ -15,7 +15,7 @@ import { DictContent } from '../components/DictContent';
 import { FloatingSpirit } from '../components/FloatingSpirit';
 import { SpiritChatPanel } from '../components/SpiritChatPanel';
 import TaskTrackingService from '../services/TaskTrackingService';
-import PreferencesService from '../services/PreferencesService';
+import PreferencesService, { courseLesson } from '../services/PreferencesService';
 import preferences from '@ohos.data.preferences';
 import { WORDS_PER_LESSON } from '../utils/Constants';
 import { UI } from '../utils/UiTokens';
@@ -49,6 +49,7 @@ struct LessonPage {
   @State words: WordEntry[] = [];
   @State currentWordIndex: number = 0;
   @State loadingError: string = '';
+  @State totalCourseLessons: number = 0;
   @State loadingErrorHint: string = '';
   @State loadingNeedLogin: boolean = false;
   @State loadingQuotaBlocked: boolean = false;
@@ -163,6 +164,24 @@ struct LessonPage {
       if (!api.getToken()) {
         this.loadingNeedLogin = true;
         this.setLoadingErrorState('登录状态已失效或未登录', '登录后即可继续学习当前关卡');
+        return;
+      }
+      this.totalCourseLessons = 0;
+      try {
+        const info = await api.getLevelInfo();
+        for (const raw of info.levels) {
+          const course = raw as Record<string, Object>;
+          if (course['level'] as number === this.lessonInfo.level) {
+            const count = (course['word_count'] as number) || 0;
+            this.totalCourseLessons = count > 0 ? Math.ceil(count / this.wordsPerLesson) : (course['lesson_count'] as number) || 0;
+            break;
+          }
+        }
+      } catch (error) {
+        console.warn('[LessonPage] course metadata unavailable; next lesson navigation disabled');
+      }
+      if (this.totalCourseLessons > 0 && this.lessonInfo.lessonId > this.totalCourseLessons) {
+        this.setLoadingErrorState('这个课程已经学完', '返回学习页，可以选择已完成的关卡再练习。');
         return;
       }
       const response = await api.getLessonWords(this.lessonInfo.level, this.lessonInfo.lessonId, this.wordsPerLesson);
@@ -411,7 +430,7 @@ struct LessonPage {
   }
 
   getSpiritContext(): string {
-    let context = `当前正在学习: ${this.lessonInfo.title} (TOPIK ${this.lessonInfo.level === 0 ? '常考' : (this.lessonInfo.level <= 2 ? 'I' : 'II')})`;
+    let context = `当前正在学习: ${this.lessonInfo.title} (TOPIK ${this.lessonInfo.level === 0 ? '常考' : (this.lessonInfo.level === 1 ? 'I' : 'II')})`;
     
     if (this.phase === LearningPhase.PREVIEW && this.words.length > 0) {
       const word = this.words[this.currentWordIndex];
@@ -482,7 +501,8 @@ struct LessonPage {
         }
 
         Button(this.loadingActionLabel())
-          .type(ButtonType.Capsule)
+          .type(ButtonType.Normal)
+            .borderRadius(UI.CONTROL_RADIUS)
           .backgroundColor(COLORS.PRIMARY)
           .fontColor(UI.ON_PRIMARY)
           .fontSize(15)
@@ -625,8 +645,8 @@ struct LessonPage {
       }
       .width('86%')
       .backgroundColor(COLORS.SURFACE)
-      .borderRadius(22)
       .border({ width: 1, color: COLORS.BORDER })
+      .borderRadius(22).clip(true)
       .shadow({ radius: 24, color: UI.SHADOW, offsetY: 6 })
       .onClick(() => {})
     }
@@ -721,7 +741,7 @@ struct LessonPage {
       const context = getContext(this);
       await this.preferencesService.init(context);
       const state = await this.preferencesService.getLearningState();
-      if (state.currentLevel !== this.lessonInfo.level || state.currentLesson !== this.lessonInfo.lessonId) {
+      if (courseLesson(state, this.lessonInfo.level) !== this.lessonInfo.lessonId) {
         return;
       }
 
@@ -866,19 +886,23 @@ struct LessonPage {
     Column() {
       Blank().height(UI.TOUCH_MIN)
 
-      Image(this.isPassed ? $r('app.media.ic_trophy') : $r('app.media.ic_retry'))
-        .width(100)
-        .height(100)
-        .fillColor(this.isPassed ? UI.WARM : COLORS.TEXT_SECONDARY)
+      Image(this.isPassed ? $r('app.media.ic_check') : $r('app.media.ic_retry'))
+        .width(72).height(72).padding(20).borderRadius(22)
+        .backgroundColor(UI.GREEN_SOFT).fillColor(COLORS.PRIMARY)
 
-      Text(this.isPassed ? '恭喜通关！' : '继续加油！')
+      Text('又向前走了一小步')
         .fontSize(28)
         .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .margin({ top: 24 })
 
+      Text(this.isPassed ? '这些表达，已经更熟悉了。' : '不急，没记住的词再见几次就好。')
+        .fontSize(13).fontColor(COLORS.TEXT_SECONDARY).margin({ top: 10 })
+      Text(`${this.correctCount} / ${this.quizzes.length}`)
+        .fontSize(46).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY).margin({ top: 24 })
+      Text('本次答对的题目').fontSize(13).fontColor(COLORS.TEXT_SECONDARY).margin({ top: 6 })
       Row() {
-        Text('正确率')
+        Text(this.isPassed ? '已通过 · 正确率' : '未通过 · 正确率')
           .fontSize(UI.BODY_SIZE)
           .fontColor(COLORS.TEXT_SECONDARY)
 
@@ -923,17 +947,23 @@ struct LessonPage {
       .width('100%')
       .padding({ top: 20, bottom: 20 })
       .backgroundColor(COLORS.SURFACE)
-      .borderRadius(UI.CARD_RADIUS)
       .border({ width: 1, color: COLORS.BORDER })
+      .borderRadius(UI.CARD_RADIUS).clip(true)
       .margin({ top: 24 })
       .justifyContent(FlexAlign.SpaceEvenly)
 
-      Blank()
-
+      if (this.wrongCount > 0) {
+        Button('只重练错题').type(ButtonType.Normal).height(48).width('100%')
+          .backgroundColor(UI.GREEN_SOFT).fontColor(COLORS.PRIMARY).borderRadius(UI.CONTROL_RADIUS)
+          .margin({ top: 20 }).onClick(() => { this.retryWrongQuizzes(); })
+      }
+      Text('正确率达到 85% 即通过。今天的目标会同步更新。')
+        .fontSize(12).lineHeight(20).fontColor(COLORS.TEXT_SECONDARY).margin({ top: 18 })
       Column() {
-        if (this.isPassed) {
+        if (this.isPassed && this.lessonInfo.lessonId < this.totalCourseLessons) {
           Button('进入下一关')
-            .type(ButtonType.Capsule)
+            .type(ButtonType.Normal)
+            .borderRadius(UI.CONTROL_RADIUS)
             .width('100%')
             .height(52)
             .backgroundColor(COLORS.PRIMARY)
@@ -951,9 +981,10 @@ struct LessonPage {
                 }
               });
             })
-        } else {
+        } else if (!this.isPassed) {
           Button('再练一次')
-            .type(ButtonType.Capsule)
+            .type(ButtonType.Normal)
+            .borderRadius(UI.CONTROL_RADIUS)
             .width('100%')
             .height(52)
             .backgroundColor(COLORS.PRIMARY)
@@ -965,13 +996,14 @@ struct LessonPage {
         }
 
         Button('返回关卡列表')
-          .type(ButtonType.Capsule)
+          .type(ButtonType.Normal)
           .width('100%')
           .height(52)
           .backgroundColor('transparent')
           .fontColor(COLORS.TEXT_SECONDARY)
           .fontSize(UI.BODY_SIZE)
           .border({ width: 1, color: COLORS.BORDER })
+          .borderRadius(UI.CONTROL_RADIUS).clip(true)
           .margin({ top: 12 })
           .onClick(() => {
             router.back();

@@ -2,6 +2,7 @@
  * 生词本内容组件
  * 显示待复习生词和全部生词列表
  */
+import { UI } from '../utils/UiTokens';
 import { COLORS } from '../utils/Constants';
 import { VocabularyService, VocabularyWord } from '../services/VocabularyService';
 import AudioService from '../services/AudioService';
@@ -42,7 +43,11 @@ export struct VocabularyContent {
   }
 
   async aboutToAppear() {
-    const context = getContext(this);
+    const context = this.getUIContext().getHostContext();
+    if (!context) {
+      this.isLoading = false;
+      return;
+    }
     await this.vocabularyService.init(context);
     this.audioService.setCacheDir(context.tempDir);
     // 直接从单例加载数据，内存中的数据已是最新
@@ -68,7 +73,7 @@ export struct VocabularyContent {
     if (this.reviewOffset + this.reviewWords.length >= this.reviewCount) return;
     
     // 淡出 + 上滑（较慢，让用户感知）
-    animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
+    this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
       this.listOpacity = 0;
       this.listTranslateY = -60;
     });
@@ -78,7 +83,7 @@ export struct VocabularyContent {
       this.reviewOffset += 20;
       this.reviewWords = this.vocabularyService.getWordsToReview(this.reviewOffset);
       this.listTranslateY = 80; // 从更远的下方进入
-      animateTo({ 
+      this.getUIContext().animateTo({
         duration: 350, 
         curve: curves.springMotion(0.5, 0.8) // 弹簧曲线
       }, () => {
@@ -93,7 +98,7 @@ export struct VocabularyContent {
     if (this.reviewOffset <= 0) return;
     
     // 淡出 + 下滑（较慢，让用户感知）
-    animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
+    this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
       this.listOpacity = 0;
       this.listTranslateY = 60;
     });
@@ -103,7 +108,7 @@ export struct VocabularyContent {
       this.reviewOffset = Math.max(0, this.reviewOffset - 20);
       this.reviewWords = this.vocabularyService.getWordsToReview(this.reviewOffset);
       this.listTranslateY = -80; // 从更远的上方进入
-      animateTo({ 
+      this.getUIContext().animateTo({
         duration: 350, 
         curve: curves.springMotion(0.5, 0.8) // 弹簧曲线
       }, () => {
@@ -117,7 +122,7 @@ export struct VocabularyContent {
   loadAllNextPage() {
     if (this.allWordsOffset + this.allWords.length >= this.allWordsTotalCount) return;
     
-    animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
+    this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
       this.allListOpacity = 0;
       this.allListTranslateY = -60;
     });
@@ -126,7 +131,7 @@ export struct VocabularyContent {
       this.allWordsOffset += 20;
       this.allWords = this.vocabularyService.getAllWords().slice(this.allWordsOffset, this.allWordsOffset + 20);
       this.allListTranslateY = 80;
-      animateTo({ 
+      this.getUIContext().animateTo({
         duration: 350, 
         curve: curves.springMotion(0.5, 0.8)
       }, () => {
@@ -140,7 +145,7 @@ export struct VocabularyContent {
   loadAllPreviousPage() {
     if (this.allWordsOffset <= 0) return;
     
-    animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
+    this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
       this.allListOpacity = 0;
       this.allListTranslateY = 60;
     });
@@ -149,7 +154,7 @@ export struct VocabularyContent {
       this.allWordsOffset = Math.max(0, this.allWordsOffset - 20);
       this.allWords = this.vocabularyService.getAllWords().slice(this.allWordsOffset, this.allWordsOffset + 20);
       this.allListTranslateY = -80;
-      animateTo({ 
+      this.getUIContext().animateTo({
         duration: 350, 
         curve: curves.springMotion(0.5, 0.8)
       }, () => {
@@ -209,7 +214,7 @@ export struct VocabularyContent {
 
   getNextReviewText(word: VocabularyWord): string {
     if (word.reviewCount >= 6) {
-      return '已完成';
+      return '本轮已复习';
     }
     const now = Date.now();
     if (word.nextReviewTime <= now) {
@@ -238,61 +243,37 @@ export struct VocabularyContent {
 
   build() {
     Column() {
-      // 标题
-      Row() {
-        Text('生词本')
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
-        
-        Blank()
-        
-        // 清空数据按钮（测试用）
-        Button('清空数据')
-          .type(ButtonType.Normal)
-          .height(32)
-          .padding({ left: 12, right: 12 })
-          .backgroundColor(COLORS.ERROR + '20')
-          .fontColor(COLORS.ERROR)
+      Row({ space: 12 }) {
+        Text('把想记住的词，留在这里。')
+          .fontSize(13)
+          .fontColor(COLORS.TEXT_SECONDARY)
+          .layoutWeight(1)
+        Text(`${this.allWordsTotalCount} 个`)
           .fontSize(12)
-          .borderRadius(16)
-          .onClick(() => {
-            promptAction.showDialog({
-              title: '清空生词本',
-              message: '确定要清空所有生词数据吗？此操作不可恢复。',
-              buttons: [
-                { text: '取消', color: COLORS.TEXT_SECONDARY },
-                { text: '确定', color: COLORS.ERROR }
-              ]
-            }).then((resp: promptAction.ShowDialogSuccessResponse) => {
-              if (resp.index === 1) {
-                this.vocabularyService.clearAllWords().then(() => {
-                  this.loadData();
-                  promptAction.showToast({ message: '生词本已清空' });
-                });
-              }
-            });
-          })
+          .fontColor(COLORS.PRIMARY)
+          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+          .backgroundColor(UI.GREEN_SOFT)
+          .borderRadius(10)
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 16, bottom: 8 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 8, bottom: 18 })
 
       // Tab切换
       Row() {
         this.TabButton('待复习', this.reviewCount, 0)
-        this.TabButton('全部', this.allWords.length, 1)
+        this.TabButton('全部', this.allWordsTotalCount, 1)
       }
       .width('100%')
-      .padding({ left: 16, right: 16, bottom: 8 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 8 })
 
       // 搜索框
       Row() {
-        TextInput({ placeholder: '搜索单词或释义...', text: this.searchKeyword })
-          .height(40)
+        TextInput({ placeholder: '搜索当前页单词或释义', text: this.searchKeyword })
+          .height(UI.TOUCH_MIN)
           .layoutWeight(1)
           .backgroundColor(COLORS.SURFACE)
           .borderRadius(20)
-          .padding({ left: 16, right: 16 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
           .onChange((value: string) => {
             this.searchKeyword = value;
           })
@@ -304,8 +285,8 @@ export struct VocabularyContent {
               .fontColor(COLORS.TEXT_HINT)
           }
           .type(ButtonType.Circle)
-          .width(32)
-          .height(32)
+          .width(UI.TOUCH_MIN)
+          .height(UI.TOUCH_MIN)
           .backgroundColor('transparent')
           .margin({ left: 8 })
           .onClick(() => {
@@ -314,7 +295,7 @@ export struct VocabularyContent {
         }
       }
       .width('100%')
-      .padding({ left: 16, right: 16, bottom: 8 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 8 })
 
       // 内容区
       if (this.isLoading) {
@@ -369,13 +350,12 @@ export struct VocabularyContent {
   ReviewList() {
     if (this.getFilteredReviewWords().length === 0) {
       Column() {
-        Text('🎉')
-          .fontSize(48)
-        Text('今日复习已完成')
+        Image($r('app.media.ic_check')).width(48).height(48).fillColor(COLORS.PRIMARY)
+        Text(this.searchKeyword.length > 0 ? '当前页没有匹配的单词' : '当前没有待复习单词')
           .fontSize(16)
           .fontColor(COLORS.TEXT_SECONDARY)
           .margin({ top: 12 })
-        Text('继续添加新词汇或明天再来')
+        Text(this.searchKeyword.length > 0 ? '换一个单词或清空搜索后继续' : '可以看看全部收藏，或在学习时添加新词')
           .fontSize(14)
           .fontColor(COLORS.TEXT_HINT)
           .margin({ top: 4 })
@@ -387,7 +367,7 @@ export struct VocabularyContent {
       Column() {
         // 分页信息提示
         Row() {
-          Text(`📋 待复习 ${this.reviewCount} 个`)
+          Text(`待复习 ${this.reviewCount} 个`)
             .fontSize(12)
             .fontColor(COLORS.TEXT_HINT)
           if (this.reviewCount > 20) {
@@ -411,7 +391,7 @@ export struct VocabularyContent {
           }
           .width('100%')
           .height('100%')
-          .padding({ left: 16, right: 16 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
           .opacity(this.listOpacity)
           .translate({ y: this.listTranslateY })
           .onReachEnd(() => {
@@ -436,13 +416,12 @@ export struct VocabularyContent {
   AllWordsList() {
     if (this.getFilteredAllWords().length === 0) {
       Column() {
-        Text('📚')
-          .fontSize(48)
-        Text('生词本是空的')
+        Image($r('app.media.ic_dict')).width(48).height(48).fillColor(COLORS.PRIMARY)
+        Text(this.searchKeyword.length > 0 ? '当前页没有匹配的单词' : '生词本还是空的')
           .fontSize(16)
           .fontColor(COLORS.TEXT_SECONDARY)
           .margin({ top: 12 })
-        Text('在词典中搜索并添加生词')
+        Text(this.searchKeyword.length > 0 ? '换一个单词或清空搜索后继续' : '在查词或学习时收藏，再把这些单词一起复习')
           .fontSize(14)
           .fontColor(COLORS.TEXT_HINT)
           .margin({ top: 4 })
@@ -454,7 +433,7 @@ export struct VocabularyContent {
       Column() {
         // 分页信息提示
         Row() {
-          Text(`📚 全部 ${this.allWordsTotalCount} 个`)
+          Text(`全部 ${this.allWordsTotalCount} 个`)
             .fontSize(12)
             .fontColor(COLORS.TEXT_HINT)
           if (this.allWordsTotalCount > 20) {
@@ -486,7 +465,7 @@ export struct VocabularyContent {
           }
           .width('100%')
           .height('100%')
-          .padding({ left: 16, right: 16 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
           .opacity(this.allListOpacity)
           .translate({ y: this.allListTranslateY })
           .onReachEnd(() => {
@@ -550,12 +529,11 @@ export struct VocabularyContent {
     Row() {
       // 播放按钮
       Button() {
-        Text('🔊')
-          .fontSize(18)
+        Image($r('app.media.ic_speaker')).width(20).height(20).fillColor(COLORS.PRIMARY)
       }
       .type(ButtonType.Circle)
-      .width(40)
-      .height(40)
+      .width(UI.TOUCH_MIN)
+      .height(UI.TOUCH_MIN)
       .backgroundColor(COLORS.SURFACE)
       .onClick(() => {
         this.playAudio(word.hangul);
@@ -565,7 +543,8 @@ export struct VocabularyContent {
       Column() {
         Row() {
           Text(word.hangul)
-            .fontSize(18)
+            .fontSize(19)
+            .layoutWeight(1)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.TEXT_PRIMARY)
           
@@ -574,7 +553,7 @@ export struct VocabularyContent {
             .fontSize(10)
             .fontColor(word.reviewCount >= 6 ? COLORS.SUCCESS : COLORS.PRIMARY)
             .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-            .backgroundColor(word.reviewCount >= 6 ? '#E8F8E8' : '#E8F4FD')
+            .backgroundColor(UI.GREEN_SOFT)
             .borderRadius(8)
             .margin({ left: 8 })
         }
@@ -593,7 +572,7 @@ export struct VocabularyContent {
       if (showReviewButton) {
         Button('已复习')
           .fontSize(12)
-          .height(32)
+          .height(UI.TOUCH_MIN)
           .backgroundColor(COLORS.PRIMARY)
           .onClick(() => {
             this.markReviewed(word);
@@ -617,9 +596,9 @@ export struct VocabularyContent {
       }
     }
     .width('100%')
-    .padding(12)
+    .padding({ top: 16, bottom: 16 })
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(12)
+    .border({ width: { bottom: 1 }, color: COLORS.BORDER })
     .onClick(() => {
       // 点击卡片跳转到词典搜索
       if (this.onSearchWord) {

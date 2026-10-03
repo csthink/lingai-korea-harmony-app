@@ -6,12 +6,59 @@ import preferences from '@ohos.data.preferences';
 import { STORAGE_KEYS } from '../utils/Constants';
 import { UserSettings, LearningState } from '../models/DataModels';
 
+/** 每门课程独立保存下一关；currentLevel/currentLesson 继续表示当前选中课程。 */
+export class CourseProgress {
+  level: number = 1;
+  lesson: number = 1;
+  constructor(level: number, lesson: number) {
+    this.level = level;
+    this.lesson = lesson;
+  }
+}
+
+export class CourseLearningState extends LearningState {
+  courses: CourseProgress[] = [];
+}
+
+export function normalizeCourseState(source: CourseLearningState): CourseLearningState {
+  const state = new CourseLearningState();
+  if (!source) { return state; }
+  state.currentLevel = Number.isInteger(source.currentLevel) && source.currentLevel >= 0 ? source.currentLevel : 1;
+  state.currentLesson = Number.isInteger(source.currentLesson) && source.currentLesson > 0 ? source.currentLesson : 1;
+  state.lastOpenTime = source.lastOpenTime || 0;
+  if (Array.isArray(source.courses)) {
+    for (const item of source.courses) {
+      if (item && Number.isInteger(item.level) && item.level >= 0 && Number.isInteger(item.lesson) && item.lesson > 0) {
+        const existing = state.courses.find((entry: CourseProgress) => entry.level === item.level);
+        if (existing) {
+          existing.lesson = Math.max(existing.lesson, item.lesson);
+        } else {
+          state.courses.push(new CourseProgress(item.level, item.lesson));
+        }
+      }
+    }
+  }
+  const active = state.courses.find((entry: CourseProgress) => entry.level === state.currentLevel);
+  if (active) {
+    active.lesson = Math.max(active.lesson, state.currentLesson);
+    state.currentLesson = active.lesson;
+  } else {
+    state.courses.push(new CourseProgress(state.currentLevel, state.currentLesson));
+  }
+  return state;
+}
+
+export function courseLesson(state: CourseLearningState, level: number): number {
+  const entry = state.courses.find((item: CourseProgress) => item.level === level);
+  return entry ? entry.lesson : 1;
+}
+
 // 导出数据结构
 class ExportData {
   version: number = 0;
   exportTime: number = 0;
   settings: UserSettings = new UserSettings();
-  state: LearningState = new LearningState();
+  state: CourseLearningState = new CourseLearningState();
 }
 
 /** 创建默认用户设置（每次返回新实例） */
@@ -24,8 +71,8 @@ function defaultUserSettings(): UserSettings {
 }
 
 /** 创建默认学习状态（每次返回新实例） */
-function defaultLearningState(): LearningState {
-  const s = new LearningState();
+function defaultLearningState(): CourseLearningState {
+  const s = new CourseLearningState();
   s.currentLevel = 1;
   s.currentLesson = 1;
   s.lastOpenTime = 0;
@@ -36,6 +83,13 @@ class PreferencesService {
   private static instance: PreferencesService;
   private preferencesStore: preferences.Preferences | null = null;
   private context: Context | null = null;
+  private stateMutation: Promise<void> = Promise.resolve();
+
+  private enqueueStateMutation(action: () => Promise<void>): Promise<void> {
+    const result = this.stateMutation.then(action);
+    this.stateMutation = result.catch(() => {});
+    return result;
+  }
 
   private constructor() {}
 
@@ -105,14 +159,14 @@ class PreferencesService {
   /**
    * 获取学习状态
    */
-  async getLearningState(): Promise<LearningState> {
+  async getLearningState(): Promise<CourseLearningState> {
     if (!this.preferencesStore) throw new Error('Preferences not initialized');
 
     try {
       const stateStr = await this.preferencesStore.get(STORAGE_KEYS.LEARNING_STATE, '');
       
       if (stateStr) {
-        return JSON.parse(stateStr as string) as LearningState;
+        return normalizeCourseState(JSON.parse(stateStr as string) as CourseLearningState);
       }
       
       return defaultLearningState();
@@ -125,11 +179,15 @@ class PreferencesService {
   /**
    * 保存学习状态
    */
-  async saveLearningState(state: LearningState): Promise<void> {
+  async saveLearningState(state: CourseLearningState): Promise<void> {
+    return this.enqueueStateMutation(() => this.writeLearningState(state));
+  }
+
+  private async writeLearningState(state: CourseLearningState): Promise<void> {
     if (!this.preferencesStore) throw new Error('Preferences not initialized');
 
     try {
-      await this.preferencesStore.put(STORAGE_KEYS.LEARNING_STATE, JSON.stringify(state));
+      await this.preferencesStore.put(STORAGE_KEYS.LEARNING_STATE, JSON.stringify(normalizeCourseState(state)));
       await this.preferencesStore.flush();
     } catch (error) {
       const msg = (error instanceof Error) ? error.message : String(error);
@@ -142,20 +200,40 @@ class PreferencesService {
    * 更新最后打开时间
    */
   async updateLastOpenTime(): Promise<void> {
-    const state = await this.getLearningState();
-    state.lastOpenTime = Date.now();
-    await this.saveLearningState(state);
+    return this.enqueueStateMutation(async () => {
+      const state = await this.getLearningState();
+      state.lastOpenTime = Date.now();
+      await this.writeLearningState(state);
+    });
   }
 
-  /**
-   * 更新当前进度
-   */
+  /** 只前进当前课程的关卡游标，回看旧关卡不会回退。 */
   async updateCurrentProgress(level: number, lesson: number): Promise<void> {
-    const state = await this.getLearningState();
-    state.currentLevel = level;
-    state.currentLesson = lesson;
-    state.lastOpenTime = Date.now();
-    await this.saveLearningState(state);
+    return this.enqueueStateMutation(async () => {
+      const state = await this.getLearningState();
+      const next = Math.max(courseLesson(state, level), lesson);
+      const existing = state.courses.find((item: CourseProgress) => item.level === level);
+      if (existing) {
+        existing.lesson = next;
+      } else {
+        state.courses.push(new CourseProgress(level, next));
+      }
+      state.currentLevel = level;
+      state.currentLesson = next;
+      state.lastOpenTime = Date.now();
+      await this.writeLearningState(state);
+    });
+  }
+
+  /** 切换课程只改变选择，不推进关卡，也不请求词表或消耗额度。 */
+  async selectCourse(level: number): Promise<void> {
+    return this.enqueueStateMutation(async () => {
+      const state = await this.getLearningState();
+      state.currentLevel = level;
+      state.currentLesson = courseLesson(state, level);
+      state.lastOpenTime = Date.now();
+      await this.writeLearningState(state);
+    });
   }
 
   // ==================== 通知设置 ====================

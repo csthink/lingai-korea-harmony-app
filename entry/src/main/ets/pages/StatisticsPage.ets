@@ -26,6 +26,8 @@ struct StatisticsPage {
   @State vocabStats: VocabStats = new VocabStats();
   @State todayTask: DailyTask = new DailyTask();
   @State isLoading: boolean = true;
+  @State trendDays: number = 7;
+  @State trendChartWidth: number = 0;
   @State selectedDate: string = '';
   @State displayedYear: number = new Date().getFullYear();
   @State displayedMonth: number = new Date().getMonth();
@@ -67,15 +69,15 @@ struct StatisticsPage {
           .height(UI.TOUCH_MIN)
           .padding(10)
           .backgroundColor(COLORS.SURFACE)
-          .borderRadius(15)
           .border({ width: 1, color: COLORS.BORDER })
+          .borderRadius(15).clip(true)
           .fillColor(COLORS.TEXT_PRIMARY)
           .onClick(() => {
             router.back();
           })
 
         Text('学习统计')
-          .fontSize(26)
+          .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor(COLORS.TEXT_PRIMARY)
           .margin({ left: 12 })
@@ -98,6 +100,9 @@ struct StatisticsPage {
       } else {
         List() {
           // 模块1：学习概览卡片
+          ListItem() {
+            this.TrendCard()
+          }
           ListItem() {
             this.OverviewCard()
           }
@@ -128,28 +133,137 @@ struct StatisticsPage {
     .backgroundColor(COLORS.BACKGROUND)
   }
 
+  private getTrendData(): DailyStats[] {
+    const map = this.getDailyStatsMap();
+    const values: DailyStats[] = [];
+    for (let offset = this.trendDays - 1; offset >= 0; offset--) {
+      const day = new Date();
+      day.setDate(day.getDate() - offset);
+      const date = this.formatDateToString(day);
+      const value = map.get(date) || new DailyStats();
+      value.date = date;
+      values.push(value);
+    }
+    return values;
+  }
+
+  private getTrendMinutes(): number {
+    return this.getTrendData().reduce((total: number, day: DailyStats) => total + day.studyMinutes, 0);
+  }
+
+  private getBarHeight(minutes: number): number {
+    let maximum = 1;
+    this.getTrendData().forEach((day: DailyStats) => {
+      maximum = Math.max(maximum, day.studyMinutes);
+    });
+    return Math.max(2, Math.round(minutes / maximum * 100));
+  }
+
+  @Builder
+  TrendCard() {
+    Column({ space: 20 }) {
+      Row({ space: 4 }) {
+        this.PeriodButton(7, '最近 7 天')
+        this.PeriodButton(30, '最近 30 天')
+      }
+      .width('100%')
+      .padding(4)
+      .backgroundColor(UI.GREEN_SOFT)
+      .borderRadius(12)
+      Column({ space: 8 }) {
+        Text('学习时长').fontSize(13).fontColor(COLORS.TEXT_SECONDARY)
+        Row({ space: 8 }) {
+          Text(this.getTrendMinutes().toString())
+            .fontSize(38)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(COLORS.TEXT_PRIMARY)
+          Text('分钟').fontSize(14).fontColor(COLORS.TEXT_SECONDARY)
+        }
+        .alignItems(VerticalAlign.Bottom)
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      Row({ space: this.trendDays === 7 ? 10 : 3 }) {
+        ForEach(this.getTrendData(), (day: DailyStats, index: number) => {
+          Column({ space: 7 }) {
+            if (this.trendDays === 7) {
+              Text(day.studyMinutes.toString()).fontSize(11).fontColor(COLORS.TEXT_SECONDARY)
+            }
+            Row()
+              .width('100%')
+              .height(this.getBarHeight(day.studyMinutes))
+              .backgroundColor(day.studyMinutes > 0 ? COLORS.PRIMARY : COLORS.BORDER)
+              .borderRadius(4)
+            if (this.trendDays === 7) {
+              Text(day.date.substring(8))
+                .fontSize(10).fontColor(COLORS.TEXT_SECONDARY).height(16)
+            } else {
+              Blank().height(16)
+            }
+          }
+          .layoutWeight(1)
+          .height(146)
+          .justifyContent(FlexAlign.End)
+          .accessibilityText(`${day.date}，学习 ${day.studyMinutes} 分钟`)
+        }, (day: DailyStats) => `${this.trendDays}:${day.date}:${day.studyMinutes}`)
+      }
+      .width('100%')
+      .onAreaChange((_oldArea, newArea) => {
+        const width = Number(newArea.width);
+        if (Number.isFinite(width) && width > 0 && width !== this.trendChartWidth) {
+          this.trendChartWidth = width;
+        }
+      })
+      .overlay(this.TrendDateLabels(), { align: Alignment.BottomStart })
+      Text('统计来自本机学习记录，空白日期按 0 分钟显示。')
+        .fontSize(12)
+        .lineHeight(19)
+        .fontColor(COLORS.TEXT_SECONDARY)
+        .width('100%')
+    }
+    .width('100%')
+    .padding({ top: 8, bottom: 12 })
+  }
+
+  private trendLabelX(index: number): number {
+    const barWidth = Math.max(0, (this.trendChartWidth - 29 * 3) / 30);
+    const centeredX = index * (barWidth + 3) + barWidth / 2 - 16;
+    return Math.max(0, Math.min(centeredX, this.trendChartWidth - 32));
+  }
+
+  @Builder
+  TrendDateLabels() {
+    if (this.trendDays === 30 && this.trendChartWidth > 0) {
+      Stack({ alignContent: Alignment.TopStart }) {
+        ForEach(this.getTrendData(), (day: DailyStats, index: number) => {
+          if (index % 5 === 0) {
+            Text(day.date.substring(8))
+              .fontSize(10).fontColor(COLORS.TEXT_SECONDARY)
+              .width(32).height(16).textAlign(TextAlign.Center)
+              // Match each bar's center, including the 29 three-vp gaps in the row.
+              .position({ x: this.trendLabelX(index), y: 0 })
+          }
+        }, (day: DailyStats) => `label:${day.date}`)
+      }.width('100%').height(16).hitTestBehavior(HitTestMode.None)
+    }
+  }
+
+  @Builder
+  PeriodButton(days: number, label: string) {
+    Button(label)
+      .type(ButtonType.Normal)
+      .layoutWeight(1)
+      .height(UI.TOUCH_MIN)
+      .fontSize(13)
+      .fontColor(this.trendDays === days ? COLORS.PRIMARY : COLORS.TEXT_SECONDARY)
+      .backgroundColor(this.trendDays === days ? COLORS.SURFACE : Color.Transparent)
+      .borderRadius(8)
+      .onClick(() => { this.trendDays = days; })
+  }
+
   @Builder
   OverviewCard() {
     Column({ space: 20 }) {
-      Row() {
-        Column({ space: 5 }) {
-          Text('学习概览')
-            .fontSize(21)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(COLORS.TEXT_PRIMARY)
-          Text('记录每一次认真练习')
-            .fontSize(13)
-            .fontColor(COLORS.TEXT_SECONDARY)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        Image($r('app.media.lingai_robot'))
-          .width(56)
-          .height(56)
-          .objectFit(ImageFit.Contain)
-      }
-      .width('100%')
-
       Column({ space: 12 }) {
         Row() {
           this.StatItem('学习天数', `${this.overview.studyDays}`, '天')
@@ -167,9 +281,8 @@ struct StatisticsPage {
       .width('100%')
     }
     .width('100%')
-    .padding(20)
-    .backgroundColor(UI.GREEN_SOFT)
-    .borderRadius(UI.CARD_RADIUS)
+    .padding({ top: 12, bottom: 12 })
+    .backgroundColor(COLORS.SURFACE)
     .margin({ bottom: 20 })
   }
 
@@ -212,15 +325,13 @@ struct StatisticsPage {
         .fontColor(COLORS.TEXT_PRIMARY)
         .width('100%')
 
-      this.TaskProgressItem('推进1关', this.todayTask.lessonStepDone, 1, COLORS.PRIMARY)
-      this.TaskProgressItem('复习20词', this.todayTask.reviewCount, 20, COLORS.SECONDARY)
-      this.TaskProgressItem('学习10分', this.todayTask.studyMinutes, 10, COLORS.ACCENT)
+      this.TaskProgressItem('完成一个关卡步骤', this.todayTask.lessonStepDone, 1, COLORS.PRIMARY)
+      this.TaskProgressItem('复习单词', this.todayTask.reviewCount, 20, COLORS.SECONDARY)
+      this.TaskProgressItem('学习时长（分钟）', this.todayTask.studyMinutes, 10, COLORS.ACCENT)
     }
     .width('100%')
-    .padding(22)
+    .padding({ top: 16, bottom: 16 })
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(UI.CARD_RADIUS)
-    .border({ width: 1, color: COLORS.BORDER })
     .margin({ bottom: 20 })
   }
 
@@ -244,8 +355,8 @@ struct StatisticsPage {
       Progress({ value: Math.min(current, target), total: target, type: ProgressType.Linear })
         .width('100%')
         .height(6)
-        .color(color)
-        .backgroundColor(COLORS.BORDER)
+        .color(current >= target ? COLORS.PRIMARY : current > 0 ? UI.BLUE : COLORS.BORDER)
+        .backgroundColor(UI.GREEN_SOFT)
     }
     .width('100%')
     .margin({ bottom: 12 })
@@ -254,7 +365,7 @@ struct StatisticsPage {
   @Builder
   CalendarCheckInCard() {
     Column() {
-      Text('学习打卡日历')
+      Text('学习日历')
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
@@ -285,8 +396,8 @@ struct StatisticsPage {
       .width('100%')
       .padding(14)
       .backgroundColor(COLORS.BACKGROUND)
-      .borderRadius(14)
       .border({ width: 1, color: COLORS.BORDER })
+      .borderRadius(14).clip(true)
 
       // 按日期与数值重建详情视图，避免保留初次传入的数据。
       ForEach([this.getSelectedDayStats()], (stats: DailyStats) => {
@@ -294,10 +405,8 @@ struct StatisticsPage {
       }, (stats: DailyStats) => `${stats.date}:${stats.lessonsCompleted}:${stats.reviewCount}:${stats.studyMinutes}`)
     }
     .width('100%')
-    .padding(20)
+    .padding({ top: 16, bottom: 16 })
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(UI.CARD_RADIUS)
-    .border({ width: 1, color: COLORS.BORDER })
     .margin({ bottom: 20 })
   }
 
@@ -427,7 +536,7 @@ struct StatisticsPage {
     .width('100%')
     .padding(18)
     .margin({ top: 16 })
-    .backgroundColor(UI.BLUE_SOFT)
+    .backgroundColor(UI.GREEN_SOFT)
     .borderRadius(18)
   }
 
@@ -448,8 +557,8 @@ struct StatisticsPage {
     .alignItems(HorizontalAlign.Start)
     .padding({ left: 14, right: 14, top: 12, bottom: 12 })
     .backgroundColor(COLORS.BACKGROUND)
-    .borderRadius(10)
     .border({ width: 1, color: COLORS.BORDER })
+    .borderRadius(10).clip(true)
   }
 
   @Builder
@@ -470,10 +579,8 @@ struct StatisticsPage {
       .justifyContent(FlexAlign.SpaceAround)
     }
     .width('100%')
-    .padding(20)
+    .padding({ top: 16, bottom: 16 })
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(UI.CARD_RADIUS)
-    .border({ width: 1, color: COLORS.BORDER })
   }
 
   @Builder

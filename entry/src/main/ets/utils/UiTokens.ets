@@ -1,16 +1,21 @@
 /** Visual values shared by the current client. No application behavior belongs here. */
 
 export class UI {
-  static readonly PAGE_INSET: number = 24;
+  static readonly PAGE_INSET: number = 22;
   static readonly CONTENT_TOP: number = 48;
   static readonly SECTION_GAP: number = 24;
-  static readonly CARD_RADIUS: number = 24;
-  static readonly CONTROL_RADIUS: number = 16;
+  static readonly CARD_RADIUS: number = 22;
+  static readonly CONTROL_RADIUS: number = 12;
   static readonly TOUCH_MIN: number = 44;
-  static readonly TITLE_SIZE: number = 26;
+  static readonly TITLE_SIZE: number = 23;
   static readonly BODY_SIZE: number = 16;
   static readonly CAPTION_SIZE: number = 13;
   static readonly NAV_HEIGHT: number = 78;
+
+  static readonly ROW_RADIUS: number = 16;
+  static get HEADER_BG(): string { return '#FFFFFF'; }
+  static get BLUE_BORDER(): string { return '#B9D1F2'; }
+  static get SELECTED_BORDER(): string { return '#A9D8C6'; }
 
   static get ON_PRIMARY(): string { return '#FFFFFF'; }
   static get BLUE(): string { return '#2C6FD6'; }

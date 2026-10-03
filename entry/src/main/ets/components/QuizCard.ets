@@ -33,27 +33,32 @@ export struct QuizCard {
           }
           .width('100%')
 
-          Column() {
+          Column({ space: 10 }) {
+            Row() {
             Text(this.quiz.stem.display)
-              .fontSize(38)
+              .fontSize(32)
               .fontWeight(FontWeight.Bold)
               .fontColor(COLORS.TEXT_PRIMARY)
-              .textAlign(TextAlign.Center)
+              .textAlign(TextAlign.Start).layoutWeight(1)
+            Button() {
+              Image($r('app.media.ic_speaker')).width(21).height(21).fillColor(COLORS.PRIMARY)
+            }.type(ButtonType.Normal).width(44).height(44).borderRadius(12).backgroundColor(UI.GREEN_SOFT)
+            .accessibilityText('播放题目').onClick(() => { if (this.onPlayAudio) { this.onPlayAudio(this.quiz.stem.display); } })
+            }.width('100%')
+            Text('选择正确的答案').fontSize(13).fontColor(COLORS.TEXT_SECONDARY).width('100%')
 
             if (this.quiz.context !== '') {
               Text(this.quiz.context)
                 .fontSize(UI.BODY_SIZE)
                 .fontColor(COLORS.TEXT_SECONDARY)
                 .margin({ top: 12 })
-                .textAlign(TextAlign.Center)
+                .textAlign(TextAlign.Start)
             }
           }
           .width('100%')
-          .padding({ left: 20, right: 20, top: 32, bottom: 32 })
+          .padding({ left: 0, right: 0, top: 22, bottom: 22 })
           .margin({ top: 16 })
-          .backgroundColor(COLORS.SURFACE)
-          .borderRadius(UI.CARD_RADIUS)
-          .border({ width: 1, color: COLORS.BORDER })
+          .backgroundColor(COLORS.BACKGROUND)
 
           Column({ space: 12 }) {
             ForEach(this.quiz.options, (option: QuizOption) => {
@@ -74,8 +79,9 @@ export struct QuizCard {
       Column() {
         // 答错时显示反馈（答对时直接跳过，不显示这个区域）
         if (this.showResult) {
-          Column() {
-
+          Column({ space: 10 }) {
+            Text('再记一下这个表达').fontSize(14).fontWeight(FontWeight.Bold).fontColor(UI.DANGER_TEXT).width('100%')
+            Text(this.correctAnswerText()).fontSize(13).fontColor(COLORS.TEXT_PRIMARY).width('100%')
             Button('继续')
               .type(ButtonType.Normal)
               .borderRadius(UI.CONTROL_RADIUS)
@@ -101,7 +107,7 @@ export struct QuizCard {
                 .fontColor(COLORS.WARNING)
                 .margin({ bottom: 8 })
             }
-            Button('确认')
+            Button('确认答案')
               .type(ButtonType.Normal)
               .borderRadius(UI.CONTROL_RADIUS)
               .width('100%')
@@ -137,7 +143,7 @@ export struct QuizCard {
         .fontColor(this.getOptionLetterColor(option))
         .width(32)
         .height(32)
-        .textAlign(TextAlign.Center)
+        .textAlign(TextAlign.Start)
         .borderRadius(16)
         .backgroundColor(this.getOptionBgColor(option))
 
@@ -163,15 +169,20 @@ export struct QuizCard {
     .constraintSize({ minHeight: 60 })
     .padding({ left: 14, right: 16, top: 12, bottom: 12 })
     .backgroundColor(this.getOptionCardBg(option))
-    .borderRadius(UI.CONTROL_RADIUS)
     .border({
-      width: 2,
+      width: 1,
       color: this.getOptionBorderColor(option),
     })
+    .borderRadius(UI.CONTROL_RADIUS).clip(true)
     .enabled(!this.showResult)
     .onClick(() => {
       this.selectedOption = option.id;
     })
+  }
+
+  private correctAnswerText(): string {
+    const correct = this.quiz.options.find((option: QuizOption) => option.isCorrect);
+    return correct ? `${this.quiz.stem.display}：${correct.text}` : '';
   }
 
   getQuizTypeLabel(): string {
@@ -221,11 +232,11 @@ export struct QuizCard {
 
   getOptionBorderColor(option: QuizOption): string {
     if (!this.showResult) {
-      return this.selectedOption === option.id ? COLORS.PRIMARY : 'transparent';
+      return this.selectedOption === option.id ? COLORS.PRIMARY : COLORS.BORDER;
     }
     if (option.isCorrect) return COLORS.SUCCESS;
     if (this.selectedOption === option.id) return COLORS.ERROR;
-    return 'transparent';
+    return COLORS.BORDER;
   }
 
   resetState() {

@@ -3,6 +3,7 @@
  * 底部弹出半屏卡片，支持多轮对话
  */
 import { COLORS } from '../utils/Constants';
+import { AssistantAvatar } from './AssistantAvatar';
 import { UI } from '../utils/UiTokens';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import ApiService, { ApiError } from '../services/ApiService';
@@ -38,6 +39,17 @@ class ChatMessage {
   }
 }
 
+// 仅供原生 Text/Span 展示，不改消息原文或复制按钮内容。
+class ChatTextRun {
+  text: string;
+  emphasized: boolean;
+
+  constructor(text: string, emphasized: boolean = false) {
+    this.text = text;
+    this.emphasized = emphasized;
+  }
+}
+
 @Component
 export struct SpiritChatPanel {
   // 关闭回调
@@ -50,6 +62,8 @@ export struct SpiritChatPanel {
   @State inputText: string = '';
   @State isLoading: boolean = false;
   @State canStop: boolean = false;
+  @State replyExpression: boolean = false;
+  private replyExpressionTimer: number = -1;
   @State userInfo: UserInfo = new UserInfo();
   
   private listScroller: Scroller = new Scroller();
@@ -139,6 +153,7 @@ export struct SpiritChatPanel {
 
   aboutToDisappear() {
     this.cancelActiveRequest(false);
+    if (this.replyExpressionTimer !== -1) clearTimeout(this.replyExpressionTimer);
   }
 
   private cancelActiveRequest(showToast: boolean): void {
@@ -182,6 +197,7 @@ export struct SpiritChatPanel {
     this.messages.push(userMsg);
     this.inputText = '';
     this.isLoading = true;
+    this.replyExpression = false;
     this.canStop = true;
     
     // 保存用户消息
@@ -216,6 +232,9 @@ export struct SpiritChatPanel {
       }
 
       if (reply) {
+        this.replyExpression = true;
+        if (this.replyExpressionTimer !== -1) clearTimeout(this.replyExpressionTimer);
+        this.replyExpressionTimer = setTimeout(() => { this.replyExpression = false; }, 1800);
         const assistantMsg = new ChatMessage('assistant', reply);
         this.messages.push(assistantMsg);
         await this.chatService.addMessage(assistantMsg.role, assistantMsg.content);
@@ -334,19 +353,13 @@ export struct SpiritChatPanel {
     Column() {
       // 标题与对话操作
       Row({ space: 8 }) {
-        Image($r('app.media.lingai_robot'))
-          .width(40)
-          .height(40)
-          .objectFit(ImageFit.Contain)
-          .padding(4)
-          .backgroundColor(UI.GREEN_SOFT)
-          .borderRadius(18)
+        AssistantAvatar({ avatarSize: 48, expression: this.isLoading ? 'thinking' : this.replyExpression ? 'happy' : 'focus' })
         Column({ space: 4 }) {
-          Text('小语灵助手')
+          Text('小灵陪你学')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor(COLORS.TEXT_PRIMARY)
-          Text('韩语学习 AI')
+          Text(this.aiQuotaBadge())
             .fontSize(12)
             .fontColor(UI.BLUE)
         }
@@ -384,29 +397,22 @@ export struct SpiritChatPanel {
         })
       }
       .width('100%')
-      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12, bottom: 12 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 16, bottom: 12 })
+      .backgroundColor(UI.HEADER_BG)
 
-      Row({ space: 8 }) {
-        Text(this.aiQuotaSummary())
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(COLORS.TEXT_PRIMARY)
-          .layoutWeight(1)
-
-        Text(this.aiQuotaBadge())
-          .fontSize(12)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.aiQuotaBadgeTextColor())
-          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-          .backgroundColor(this.aiQuotaBadgeBackground())
-          .borderRadius(999)
+      Scroll() {
+        Row({ space: 7 }) {
+          this.QuickQuestion('怎么问好')
+          this.QuickQuestion('咖啡怎么点单')
+          this.QuickQuestion('给我复习建议')
+        }
       }
-      .width(`calc(100% - ${UI.PAGE_INSET * 2}vp)`)
-      .margin({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 12 })
-      .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-      .backgroundColor(UI.BLUE_SOFT)
-      .borderRadius(UI.CONTROL_RADIUS)
-      
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 12 })
+      .backgroundColor(UI.HEADER_BG)
+
       // 消息列表
       List({ scroller: this.listScroller, space: 16 }) {
         ListItem() {
@@ -447,18 +453,19 @@ export struct SpiritChatPanel {
       // 底部输入区
       Row() {
         // 输入框
-        TextInput({ placeholder: '输入问题...', text: this.inputText })
+        TextInput({ placeholder: '问问小灵…', text: this.inputText })
           .layoutWeight(1)
           .height(48)
           .backgroundColor(COLORS.SURFACE)
-          .borderRadius(UI.CONTROL_RADIUS)
           .fontSize(UI.BODY_SIZE)
           .fontColor(COLORS.TEXT_PRIMARY)
           .placeholderColor(COLORS.TEXT_HINT)
           .border({ width: 1, color: COLORS.BORDER })
+          .borderRadius(UI.CONTROL_RADIUS)
           .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
           .onChange((value: string) => {
             this.inputText = value;
+            this.replyExpression = false;
           })
           .onSubmit(() => {
             this.sendMessage();
@@ -490,7 +497,7 @@ export struct SpiritChatPanel {
           .height(48)
           .type(ButtonType.Normal)
           .borderRadius(UI.CONTROL_RADIUS)
-          .backgroundColor(this.inputText.trim() ? UI.BLUE : UI.SURFACE_MUTED)
+          .backgroundColor(this.inputText.trim() ? COLORS.PRIMARY : UI.SURFACE_MUTED)
           .margin({ left: 8 })
           .enabled(this.inputText.trim().length > 0)
           .onClick(() => {
@@ -516,27 +523,110 @@ export struct SpiritChatPanel {
   }
   
   @Builder
+  QuickQuestion(question: string) {
+    Button(question)
+      .type(ButtonType.Normal)
+      .fontSize(12)
+      .fontColor(COLORS.TEXT_SECONDARY)
+      .height(UI.TOUCH_MIN)
+      .padding({ left: 12, right: 12 })
+      .backgroundColor(UI.SURFACE_MUTED)
+      .borderRadius(10)
+      .enabled(!this.isLoading)
+      .onClick(() => {
+        this.inputText = question;
+        this.sendMessage();
+      })
+  }
+
+  private assistantTextRuns(text: string): ChatTextRun[] {
+    const runs: ChatTextRun[] = [];
+    let plain = '';
+    let cursor = 0;
+    while (cursor < text.length) {
+      const char = text.charAt(cursor);
+      if (char === '\\') {
+        plain += text.slice(cursor, cursor + 2);
+        cursor += 2;
+        continue;
+      }
+      // 代码段原样显示。未闭合代码段的剩余内容也保持原文。
+      if (char === '`') {
+        let count = 1;
+        while (text.charAt(cursor + count) === '`') count += 1;
+        const marker = '`'.repeat(count);
+        const end = text.indexOf(marker, cursor + count);
+        if (end < 0) {
+          plain += text.slice(cursor);
+          break;
+        }
+        plain += text.slice(cursor, end + count);
+        cursor = end + count;
+        continue;
+      }
+      if (char === '*') {
+        let count = 1;
+        while (text.charAt(cursor + count) === '*') count += 1;
+        if (count !== 2) {
+          plain += text.slice(cursor, cursor + count);
+          cursor += count;
+          continue;
+        }
+        let end = cursor + 2;
+        let closing = -1;
+        while (end < text.length) {
+          const next = text.charAt(end);
+          // 跨行、代码或嵌套星号语法不在本组件支持范围，保守保留整条原文。
+          if (next === '\n' || next === '\r' || next === '`') break;
+          if (next === '\\') { end += 2; continue; }
+          if (text.slice(end, end + 2) === '**') {
+            if (text.charAt(end + 2) === '*') return [new ChatTextRun(text)];
+            closing = end;
+            break;
+          }
+          end += 1;
+        }
+        if (closing >= 0 && text.slice(cursor + 2, closing).trim().length > 0) {
+          if (plain.length > 0) runs.push(new ChatTextRun(plain));
+          runs.push(new ChatTextRun(text.slice(cursor + 2, closing), true));
+          plain = '';
+          cursor = closing + 2;
+          continue;
+        }
+        // 无配对结束标记时不猜测格式。
+        return [new ChatTextRun(text)];
+      }
+      plain += char;
+      cursor += 1;
+    }
+    if (plain.length > 0 || runs.length === 0) runs.push(new ChatTextRun(plain));
+    return runs;
+  }
+
+  @Builder
   MessageBubble(msg: ChatMessage) {
     Row() {
       if (msg.role === 'user') {
         Blank()
       }
       if (msg.role === 'assistant') {
-        Image($r('app.media.lingai_robot'))
-          .width(32)
-          .height(32)
-          .objectFit(ImageFit.Contain)
-          .padding(3)
-          .backgroundColor(UI.GREEN_SOFT)
-          .borderRadius(11)
+        AssistantAvatar({ avatarSize: 32, expression: 'idle', motionEnabled: false })
           .margin({ right: 8 })
           .alignSelf(ItemAlign.Start)
       }
       
       Column() {
-        Text(msg.content)
+        Text() {
+          if (msg.role === 'assistant') {
+            ForEach(this.assistantTextRuns(msg.content), (run: ChatTextRun) => {
+              Span(run.text).fontWeight(run.emphasized ? FontWeight.Bold : FontWeight.Normal)
+            })
+          } else {
+            Span(msg.content)
+          }
+        }
           .fontSize(UI.BODY_SIZE)
-          .fontColor(msg.role === 'user' ? UI.ON_BLUE : COLORS.TEXT_PRIMARY)
+          .fontColor(COLORS.TEXT_PRIMARY)
           .lineHeight(24)
           .copyOption(CopyOptions.LocalDevice)
         
@@ -562,7 +652,7 @@ export struct SpiritChatPanel {
         }
       }
       .padding(16)
-      .backgroundColor(msg.role === 'user' ? UI.BLUE : COLORS.SURFACE)
+      .backgroundColor(msg.role === 'user' ? UI.GREEN_SOFT : COLORS.SURFACE)
       .borderRadius({ topLeft: msg.role === 'user' ? 20 : 4, topRight: msg.role === 'user' ? 4 : 20, bottomLeft: 20, bottomRight: 20 })
       .constraintSize({ maxWidth: '78%' })
       .alignItems(HorizontalAlign.Start)

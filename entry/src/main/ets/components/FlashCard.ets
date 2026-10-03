@@ -6,7 +6,6 @@
 import { COLORS } from '../utils/Constants';
 import { UI } from '../utils/UiTokens';
 import { WordEntry, ExampleSentence } from '../models/DataModels';
-import promptAction from '@ohos.promptAction';
 
 @Component
 export struct FlashCard {
@@ -121,297 +120,106 @@ export struct FlashCard {
     }
   }
 
+  private showVocabularyNotice(message: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (error) {
+      console.warn('[FlashCard] vocabulary notification unavailable');
+    }
+  }
+
+  private toggleVocabulary(): void {
+    if (this.isAddedToVocab) {
+      if (this.onRemoveVocabulary) {
+        this.onRemoveVocabulary(this.word.hangul);
+        this.isAddedToVocab = false;
+        this.showVocabularyNotice('已从生词本移除');
+      }
+    } else if (this.onAddVocabulary) {
+      this.onAddVocabulary(this.word.hangul, this.word.primaryMeaning);
+      this.isAddedToVocab = true;
+      this.showVocabularyNotice('已添加到生词本');
+    }
+  }
+
   build() {
     Column() {
       Row() {
-        Text('预习卡片')
-          .fontSize(UI.CAPTION_SIZE)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(COLORS.PRIMARY)
+        Text('轻点词卡，查看释义').fontSize(12).fontColor(COLORS.TEXT_SECONDARY)
         Blank()
-        Text(`${this.index + 1} / ${this.total}`)
-          .fontSize(UI.CAPTION_SIZE)
-          .fontColor(COLORS.TEXT_SECONDARY)
-
-      }
-      .width('100%')
-      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 16 })
-
-      Progress({ value: this.index + 1, total: this.total, type: ProgressType.Linear })
-        .width('88%')
-        .height(4)
-        .color(COLORS.PRIMARY)
-        .backgroundColor(UI.GREEN_SOFT)
-        .margin({ top: 10 })
-
-      Stack() {
-        // 正面 - 韩文
-        Scroll() {
-        Column() {
-          // 单词区域 - 只有这部分应用透明度动画
-          Column() {
-            Text(this.word.hangul)
-              .fontSize(52)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(COLORS.TEXT_PRIMARY)
-              .copyOption(CopyOptions.LocalDevice)
-              .onTextSelectionChange((start, end) => {
-                 if (start >= 0 && end > start && end <= this.word.hangul.length) {
-                   this.selectedText = this.word.hangul.substring(start, end);
-                 }
-              })
-              .bindSelectionMenu(TextSpanType.TEXT, this.SelectionMenuBuilder, TextResponseType.LONG_PRESS)
-
-            Text(this.word.romanization)
-              .fontSize(UI.BODY_SIZE)
-              .fontColor(COLORS.TEXT_SECONDARY)
-              .margin({ top: 8 })
-          }
-          .opacity(this.contentOpacity)
-
-          // 喇叭按钮 - 固定大小，只改变内部颜色
-          Stack() {
-            // 背景圆圈 - 固定大小56x56
-            Circle()
-              .width(56)
-              .height(56)
-              .fill(this.isPlaying ? UI.BLUE : UI.BLUE_SOFT)
-
-            // 喇叭图标
-            Image($r('app.media.ic_speaker'))
-              .width(28)
-              .height(28)
-              .fillColor(this.isPlaying ? UI.ON_BLUE : UI.BLUE)
-          }
-          .width(56)
-          .height(56)
-          .margin({ top: 24 })
-          .onClick(() => {
-            this.handleSpeakerClick();
-          })
-
-          // 固定高度的提示区域 - 不使用条件渲染避免布局跳动
-          Row() {
-            if (this.isPlaying) {
-              LoadingProgress()
-                .width(16)
-                .height(16)
-                .color(COLORS.PRIMARY)
-            }
-            Text(this.isPlaying ? '播放中...' : '点击喇叭听发音')
-              .fontSize(UI.CAPTION_SIZE)
-              .fontColor(this.isPlaying ? COLORS.PRIMARY : COLORS.TEXT_HINT)
-              .margin({ left: this.isPlaying ? 8 : 0 })
-          }
-          .height(24)
-          .margin({ top: 16 })
-          .justifyContent(FlexAlign.Center)
-
-          Text('点击卡片查看释义')
-            .fontSize(UI.CAPTION_SIZE)
-            .fontColor(COLORS.TEXT_HINT)
-            .margin({ top: 16 })
-          
-          // 导航按钮 - 不应用透明度动画
-          Row({ space: 16 }) {
-            Button('上一个')
-              .type(ButtonType.Normal)
-              .layoutWeight(1)
-              .height(48)
-              .backgroundColor(this.index > 0 ? UI.BLUE_SOFT : UI.SURFACE_MUTED)
-              .fontSize(16)
-              .fontColor(this.index > 0 ? COLORS.TEXT_PRIMARY : COLORS.TEXT_HINT)
-              .border({ width: 1, color: COLORS.BORDER })
-              .borderRadius(UI.CONTROL_RADIUS)
-              .enabled(this.index > 0)
-              .onClick(() => {
-                this.isFlipped = false;
-                this.stopAnimation();
-                if (this.onPrevious) {
-                  this.onPrevious();
-                }
-              })
-            
-            Button('下一个')
-              .type(ButtonType.Normal)
-              .borderRadius(UI.CONTROL_RADIUS)
-              .layoutWeight(1)
-              .height(48)
-              .backgroundColor(COLORS.PRIMARY)
-              .fontSize(16)
-              .fontColor(UI.ON_PRIMARY)
-              .onClick(() => {
-                this.isFlipped = false;
-                this.stopAnimation();
-                if (this.onNext) {
-                  this.onNext();
-                }
-              })
-          }
-          .width('100%')
-          .margin({ top: 24 })
-        }
-        .width('100%')
-        .constraintSize({ minHeight: 380 })
-        .padding({ top: 24, bottom: 112 })
-        .justifyContent(FlexAlign.Center)
-        }
-        .width('100%')
-        .height('100%')
-        .scrollBar(BarState.Off)
-        .visibility(this.isFlipped ? Visibility.Hidden : Visibility.Visible)
-        // 背面 - 释义
-        Scroll() {
-        Column() {
-          // 内容区域 - 应用透明度动画
-          Column() {
-            Text(this.word.hangul)
-              .fontSize(32)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(COLORS.TEXT_PRIMARY)
-              .copyOption(CopyOptions.LocalDevice)
-              .onTextSelectionChange((start, end) => {
-                 if (start >= 0 && end > start && end <= this.word.hangul.length) {
-                   this.selectedText = this.word.hangul.substring(start, end);
-                 }
-              })
-              .bindSelectionMenu(TextSpanType.TEXT, this.SelectionMenuBuilder, TextResponseType.LONG_PRESS)
-
-            Text(this.word.primaryMeaning)
-              .fontSize(28)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(COLORS.PRIMARY)
-              .margin({ top: 16 })
-
+        Text(`${this.index + 1} / ${this.total}`).fontSize(13).fontWeight(FontWeight.Medium).fontColor(COLORS.TEXT_PRIMARY)
+      }.width('100%').padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 16, bottom: 10 })
+      Progress({ value: this.index + 1, total: Math.max(1, this.total), type: ProgressType.Linear })
+        .width('88%').height(5).color(UI.BLUE).backgroundColor(UI.BLUE_SOFT)
+      Scroll() {
+        Column({ space: 18 }) {
+          Column({ space: 16 }) {
             if (this.word.pos !== '') {
-              Text(`[${this.word.pos}]`)
-                .fontSize(UI.CAPTION_SIZE)
-                .fontColor(COLORS.TEXT_SECONDARY)
-                .margin({ top: 8 })
+              Text(this.word.pos).fontSize(12).fontColor(COLORS.PRIMARY)
+                .padding({ left: 10, right: 10, top: 5, bottom: 5 }).backgroundColor(COLORS.SURFACE).borderRadius(9)
             }
-
-            if (this.word.examples.length > 0) {
-              Column() {
-                Text(this.word.examples[0].ko)
-                  .fontSize(16)
-                  .fontColor(COLORS.TEXT_PRIMARY)
-                  .textAlign(TextAlign.Center)
-                  .copyOption(CopyOptions.LocalDevice)
-                  .onTextSelectionChange((start, end) => {
-                     const text = this.word.examples[0].ko;
-                     if (start >= 0 && end > start && end <= text.length) {
-                       this.selectedText = text.substring(start, end);
-                     }
-                  })
-                  .bindSelectionMenu(TextSpanType.TEXT, this.SelectionMenuBuilder, TextResponseType.LONG_PRESS)
-
-                Text(this.word.examples[0].zh)
-                  .fontSize(UI.CAPTION_SIZE)
-                  .fontColor(COLORS.TEXT_SECONDARY)
-                  .margin({ top: 4 })
-              }
-              .width('100%')
-              .margin({ top: 24 })
-              .padding(16)
-              .backgroundColor(UI.SURFACE_MUTED)
-              .borderRadius(UI.CONTROL_RADIUS)
+            if (this.isFlipped) {
+              Text(this.word.primaryMeaning).fontSize(29).fontWeight(FontWeight.Bold)
+                .fontColor(COLORS.TEXT_PRIMARY).textAlign(TextAlign.Center)
             }
-            
-            // 收录/取消生词按钮
-            Button(this.isAddedToVocab ? '✕ 取消收录' : '📖 收录生词')
-              .type(ButtonType.Normal)
-              .borderRadius(UI.CONTROL_RADIUS)
-              .height(UI.TOUCH_MIN)
-              .padding({ left: 16, right: 16 })
-              .backgroundColor(this.isAddedToVocab ? UI.SURFACE_MUTED : UI.GREEN_SOFT)
-              .fontColor(this.isAddedToVocab ? COLORS.TEXT_SECONDARY : COLORS.PRIMARY)
-              .fontSize(UI.CAPTION_SIZE)
-              .margin({ top: 20 })
-              .onClick(() => {
-                if (this.isAddedToVocab) {
-                  // 取消收录
-                  if (this.onRemoveVocabulary) {
-                    this.onRemoveVocabulary(this.word.hangul);
-                    this.isAddedToVocab = false;
-                    promptAction.showToast({ message: '已从生词本移除' });
-                  }
-                } else {
-                  // 收录生词
-                  if (this.onAddVocabulary) {
-                    this.onAddVocabulary(this.word.hangul, this.word.primaryMeaning);
-                    this.isAddedToVocab = true;
-                    promptAction.showToast({ message: '已添加到生词本' });
-                  }
+            Text(this.word.hangul).fontSize(this.isFlipped ? 24 : 42).fontWeight(FontWeight.Bold)
+              .fontColor(COLORS.TEXT_PRIMARY).textAlign(TextAlign.Center)
+              .copyOption(CopyOptions.LocalDevice)
+              .onTextSelectionChange((start, end) => {
+                if (start >= 0 && end > start && end <= this.word.hangul.length) {
+                  this.selectedText = this.word.hangul.substring(start, end);
                 }
               })
+              .bindSelectionMenu(TextSpanType.TEXT, this.SelectionMenuBuilder, TextResponseType.LONG_PRESS)
+            if (this.word.romanization !== '') {
+              Text(this.word.romanization).fontSize(13).fontColor(COLORS.TEXT_SECONDARY)
+            }
+            Text(this.isFlipped ? '再点一下，回到韩语' : '轻点翻面').fontSize(12).fontColor(COLORS.TEXT_SECONDARY)
           }
-          .opacity(this.contentOpacity)
-
-          // 导航按钮 - 不应用透明度动画
+          .width('100%').constraintSize({ minHeight: 248 }).padding(24).borderRadius(22)
+          .backgroundColor(UI.GREEN_SOFT).justifyContent(FlexAlign.Center).opacity(this.contentOpacity)
+          .onClick(() => { this.isFlipped = !this.isFlipped; })
           Row({ space: 16 }) {
-            // 上一个按钮
-            Button('上一个')
-              .type(ButtonType.Normal)
-              .layoutWeight(1)
-              .height(48)
-              .backgroundColor(this.index > 0 ? UI.BLUE_SOFT : UI.SURFACE_MUTED)
-              .fontSize(16)
-              .fontColor(this.index > 0 ? COLORS.TEXT_PRIMARY : COLORS.TEXT_HINT)
-              .border({ width: 1, color: COLORS.BORDER })
-              .borderRadius(UI.CONTROL_RADIUS)
-              .enabled(this.index > 0)
-              .onClick(() => {
-                this.isFlipped = false;
-                this.stopAnimation();
-                if (this.onPrevious) {
-                  this.onPrevious();
-                }
-              })
-            
-            // 下一个按钮
-            Button('下一个')
-              .type(ButtonType.Normal)
-              .borderRadius(UI.CONTROL_RADIUS)
-              .layoutWeight(1)
-              .height(48)
-              .backgroundColor(COLORS.PRIMARY)
-              .fontSize(16)
-              .fontColor(UI.ON_PRIMARY)
-              .onClick(() => {
-                this.isFlipped = false;
-                this.stopAnimation();
-                if (this.onNext) {
-                  this.onNext();
-                }
-              })
+            Button() {
+              Image($r('app.media.ic_speaker')).width(22).height(22).fillColor(this.isPlaying ? UI.ON_BLUE : COLORS.PRIMARY)
+            }.type(ButtonType.Normal).width(46).height(46).borderRadius(12)
+            .backgroundColor(this.isPlaying ? UI.BLUE : UI.GREEN_SOFT)
+            .accessibilityText(this.isPlaying ? '停止发音' : '播放单词')
+            .onClick(() => { this.handleSpeakerClick(); })
+            Button(this.isAddedToVocab ? '已收藏' : '收藏').type(ButtonType.Normal).height(46).borderRadius(12)
+              .backgroundColor(UI.GREEN_SOFT).fontColor(COLORS.PRIMARY).fontSize(13)
+              .onClick(() => { this.toggleVocabulary(); })
+            Button('查词').type(ButtonType.Normal).height(46).borderRadius(12)
+              .backgroundColor(UI.GREEN_SOFT).fontColor(COLORS.PRIMARY).fontSize(13)
+              .onClick(() => { if (this.onSearch) { this.onSearch(this.word.hangul); } })
+          }.width('100%').justifyContent(FlexAlign.Center)
+          if (this.isFlipped && this.word.examples.length > 0) {
+            Column({ space: 8 }) {
+              Text(this.word.examples[0].ko).fontSize(17).lineHeight(26).fontColor(COLORS.TEXT_PRIMARY)
+                .copyOption(CopyOptions.LocalDevice)
+                .onTextSelectionChange((start, end) => {
+                  const text = this.word.examples[0].ko;
+                  if (start >= 0 && end > start && end <= text.length) { this.selectedText = text.substring(start, end); }
+                })
+                .bindSelectionMenu(TextSpanType.TEXT, this.SelectionMenuBuilder, TextResponseType.LONG_PRESS)
+              Text(this.word.examples[0].zh).fontSize(13).lineHeight(21).fontColor(COLORS.TEXT_SECONDARY)
+            }.alignItems(HorizontalAlign.Start).width('100%').padding({ top: 15, bottom: 15 })
+            .border({ width: { top: 1 }, color: COLORS.BORDER })
+          } else {
+            Text('先在心里说一遍，再看看答案。').fontSize(12).fontColor(COLORS.TEXT_SECONDARY)
           }
-          .width('100%')
-          .margin({ top: 32 })
-        }
-        .width('100%')
-        .constraintSize({ minHeight: 380 })
-        .padding({ top: 24, bottom: 112 })
-        .justifyContent(FlexAlign.Center)
-        }
-        .width('100%')
-        .height('100%')
-        .scrollBar(BarState.Off)
-        .visibility(this.isFlipped ? Visibility.Visible : Visibility.Hidden)
-      }
-      .width('100%')
-      .layoutWeight(1)
-      .margin({ top: 16, left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 24 })
-      .padding(20)
+        }.width('100%').padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 20, bottom: 20 })
+      }.width('100%').layoutWeight(1).scrollBar(BarState.Off).clipContent(ContentClipMode.CONTENT_ONLY)
+      Row({ space: 12 }) {
+        Button('上一个').type(ButtonType.Normal).layoutWeight(1).height(50).borderRadius(UI.CONTROL_RADIUS)
+          .enabled(this.index > 0).backgroundColor(UI.GREEN_SOFT).fontColor(COLORS.PRIMARY).fontSize(15)
+          .onClick(() => { this.isFlipped = false; this.stopAnimation(); if (this.onPrevious) { this.onPrevious(); } })
+        Button(this.index === this.total - 1 ? '开始练习' : '下一个').type(ButtonType.Normal).layoutWeight(1).height(50)
+          .borderRadius(UI.CONTROL_RADIUS).backgroundColor(COLORS.PRIMARY).fontColor(UI.ON_PRIMARY).fontSize(15)
+          .onClick(() => { this.isFlipped = false; this.stopAnimation(); if (this.onNext) { this.onNext(); } })
+      }.width('100%').padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12, bottom: 16 })
       .backgroundColor(COLORS.SURFACE)
-      .borderRadius(28)
-      .border({ width: 1, color: COLORS.BORDER })
-      .shadow({ radius: 12, color: UI.SHADOW, offsetY: 4 })
-      .onClick(() => {
-        this.isFlipped = !this.isFlipped;
-      })
-    }
-    .width('100%')
-    .height('100%')
+    }.width('100%').height('100%')
   }
   @Builder
   SelectionMenuBuilder() {

@@ -12,7 +12,7 @@ class IndexRouteParams {
 
 @Component
 export struct AuthRequiredState {
-  @Prop title: string = '注册后解锁完整功能';
+  @Prop title: string = '把进步留在你的账号里';
   @Prop description: string = '试运行阶段需要先登录 / 注册，才能开始使用该功能。';
   @Prop buttonText: string = '去登录 / 注册';
   @Prop source: string = 'feature_gate';
@@ -71,12 +71,12 @@ export struct AuthRequiredState {
   build() {
     Column() {
       Image($r('app.media.lingai_robot'))
-        .width(112)
-        .height(112)
+        .width(84)
+        .height(84)
         .objectFit(ImageFit.Contain)
 
       Text(this.title)
-        .fontSize(26)
+        .fontSize(23)
         .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .textAlign(TextAlign.Center)
@@ -97,7 +97,7 @@ export struct AuthRequiredState {
         .fontWeight(FontWeight.Bold)
         .height(54)
         .width('100%')
-        .borderRadius(UI.CONTROL_RADIUS)
+        .borderRadius(12)
         .margin({ top: 30 })
         .onClick(() => {
           void this.goLoginTab();

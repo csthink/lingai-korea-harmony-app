@@ -4,12 +4,12 @@
  * 适配 ArkTS 严格模式
  */
 import router from '@ohos.router';
-import { COLORS, TOPIK_LEVELS, WORDS_PER_LESSON } from '../utils/Constants';
+import { COLORS, WORDS_PER_LESSON } from '../utils/Constants';
 import preferences from '@ohos.data.preferences';
 import { themeManager } from '../utils/ThemeManager';
 import { UI } from '../utils/UiTokens';
 import ApiService from '../services/ApiService';
-import PreferencesService from '../services/PreferencesService';
+import PreferencesService, { CourseLearningState, courseLesson } from '../services/PreferencesService';
 import { AuthRequiredState } from './AuthRequiredState';
 import { UserInfo } from '../models/DataModels';
 
@@ -18,6 +18,19 @@ class IndexRouteParams {
   navFrom: string = 'study_gate';
   navAt: number = Date.now();
   openSheetMode: string = 'login';
+}
+
+class CourseInfo {
+  level: number = 1;
+  name: string = '';
+  words: number = 0;
+  lessons: number = 0;
+  constructor(level: number, name: string, words: number, lessons: number) {
+    this.level = level;
+    this.name = level === 0 ? '必备单词' : name;
+    this.words = words;
+    this.lessons = lessons;
+  }
 }
 
 // 关卡状态枚举
@@ -42,19 +55,30 @@ export class LevelNodeData {
   }
 }
 
+class LessonDataSource implements IDataSource {
+  private items: LevelNodeData[] = [];
+  private listeners: DataChangeListener[] = [];
+  totalCount(): number { return this.items.length; }
+  getData(index: number): LevelNodeData { return this.items[index]; }
+  registerDataChangeListener(listener: DataChangeListener): void { this.listeners.push(listener); }
+  unregisterDataChangeListener(listener: DataChangeListener): void {
+    const index = this.listeners.indexOf(listener);
+    if (index >= 0) { this.listeners.splice(index, 1); }
+  }
+  replace(items: LevelNodeData[]): void {
+    this.items = items;
+    this.listeners.forEach((listener: DataChangeListener) => listener.onDataReloaded());
+  }
+}
+
 @Component
 export struct StudyContent {
+  @Prop @Watch('onRefreshVersion') refreshVersion: number = 0;
   @Prop @Watch('onActiveTabIndexChange') activeTabIndex: number = -1;
   @State selectedTabIndex: number = 0;  // 0: TOPIK I, 1: TOPIK II, 2: 必备单词
   @State currentLevel: number = 1;
   @State levels: LevelNodeData[] = [];
   @State wordsPerLesson: number = WORDS_PER_LESSON;
-  @State breathScale: number = 1.0;  // 第1层波纹缩放
-  @State breathOpacity: number = 0.6;  // 第1层波纹透明度
-  @State ripple2Scale: number = 1.0;  // 第2层波纹缩放
-  @State ripple2Opacity: number = 0.4;  // 第2层波纹透明度
-  @State ripple3Scale: number = 1.0;  // 第3层波纹缩放
-  @State ripple3Opacity: number = 0.2;  // 第3层波纹透明度
   @State themeVersion: number = 0;
   @State authChecked: boolean = false;
   @State requiresLogin: boolean = false;
@@ -62,15 +86,21 @@ export struct StudyContent {
 
   private isNavigating: boolean = false;
   private navigatingToLogin: boolean = false;
-  // 从 API 加载的每个 level 的数据（key: level值）
-  private levelLessonCounts: Map<number, number> = new Map();  // 接口 lesson_count
-  private levelWordCounts: Map<number, number> = new Map();    // 接口 word_count（兆底）
-  // 当前学习进度（本地 LearningState）
-  @State currentLessonId: number = 1;
-  @State currentProgressLevel: number = 1;
-  private breathTimer: number = -1;
-  private ripplePhase: number = 0;  // 波纹相位
+  onOpenVocabulary?: () => void;
+  @State courses: CourseInfo[] = [];
+  @State courseState: CourseLearningState = new CourseLearningState();
+  @State showCourseSheet: boolean = false;
+  @State courseHeaderContentWidth: number = 280;
+  @State contentError: string = '';
+  private refreshing: boolean = false;
+  @State loadingCourses: boolean = false;
+  private lessonData: LessonDataSource = new LessonDataSource();
+  private mapScroller: Scroller = new Scroller();
   private unsubscribeTheme: (() => void) | null = null;
+
+  onRefreshVersion(): void {
+    void this.refreshForVisibleTab();
+  }
 
   onActiveTabIndexChange(): void {
     if (this.activeTabIndex !== 1) {
@@ -86,21 +116,21 @@ export struct StudyContent {
       });
     }
 
-    const context = getContext(this);
-    await this.refreshAccessState(context);
-    if (this.requiresLogin) {
-      return;
-    }
-    await this.prepareAuthorizedContent(context);
+    await this.refreshForVisibleTab();
   }
 
   private async refreshForVisibleTab(): Promise<void> {
-    const context = getContext(this);
-    await this.refreshAccessState(context);
-    if (this.requiresLogin) {
-      return;
+    if (this.refreshing) { return; }
+    this.refreshing = true;
+    this.loadingCourses = this.courses.length === 0;
+    try {
+      const context = getContext(this);
+      await this.refreshAccessState(context);
+      if (!this.requiresLogin) { await this.prepareAuthorizedContent(context); }
+    } finally {
+      this.refreshing = false;
+      this.loadingCourses = false;
     }
-    await this.prepareAuthorizedContent(context);
   }
 
   private async refreshAccessState(context: Context): Promise<void> {
@@ -143,498 +173,267 @@ export struct StudyContent {
       this.wordsPerLesson = WORDS_PER_LESSON;
     }
 
+    // 先完成远端读取，再读取当前选择，避免旧快照覆盖用户刚切换的课程。
+    await this.loadLevelInfoFromApi(context);
+
     // 读取本地学习进度
     try {
       const prefService = PreferencesService.getInstance();
       await prefService.init(context);
       const state = await prefService.getLearningState();
-      this.currentLessonId = state.currentLesson;
-      this.currentProgressLevel = state.currentLevel;
+      this.courseState = state;
+      this.currentLevel = state.currentLevel;
     } catch (e) {
       console.warn('[StudyContent] getLearningState failed, using defaults');
     }
 
-    // 从后端加载关卡配置
-    await this.loadLevelInfoFromApi(context);
-
     this.loadLevels();
-    this.startRippleAnimation();
+
   }
 
   /**
    * 从后端加载关卡总配置，填充 levelWordCounts
    */
   private async loadLevelInfoFromApi(context: Context) {
+    this.contentError = '';
     try {
       const api = ApiService.getInstance();
       await api.init(context);
-      const levelInfo = await api.getLevelInfo();
-      if (levelInfo && levelInfo.levels && levelInfo.levels.length > 0) {
-        for (let i = 0; i < levelInfo.levels.length; i++) {
-          const lv = levelInfo.levels[i] as Record<string, Object>;
-          const lvValue = (lv['level'] as number) || 0;
-          const wordCount = (lv['word_count'] as number) || 0;
-          const lessonCount = (lv['lesson_count'] as number) || 0;
-          if (lvValue >= 0) {
-            if (lessonCount > 0) {
-              this.levelLessonCounts.set(lvValue, lessonCount);
-            }
-            if (wordCount > 0) {
-              this.levelWordCounts.set(lvValue, wordCount);
-            }
-          }
+      const info = await api.getLevelInfo();
+      const courses: CourseInfo[] = [];
+      for (const raw of info.levels) {
+        const item = raw as Record<string, Object>;
+        const level = item['level'] as number;
+        const words = (item['word_count'] as number) || 0;
+        const lessons = words > 0 ? Math.ceil(words / this.wordsPerLesson) : (item['lesson_count'] as number) || 0;
+        if (Number.isInteger(level) && level >= 0 && lessons > 0) {
+          courses.push(new CourseInfo(level, item['name'] as string, words, lessons));
         }
-        // 如果 API 返回了 words_per_lesson，作为回退值
-        if (levelInfo.words_per_lesson > 0 && this.wordsPerLesson === WORDS_PER_LESSON) {
-          this.wordsPerLesson = levelInfo.words_per_lesson;
-        }
-        console.info('[StudyContent] Loaded level info from API, levels:', levelInfo.levels.length);
       }
-    } catch (e) {
-      console.warn('[StudyContent] loadLevelInfoFromApi failed, using fallback');
+      this.courses = courses;
+      if (courses.length === 0) {
+        this.contentError = '课程内容暂时不可用，请稍后重新加载。';
+
+      }
+    } catch (error) {
+      this.contentError = '课程没有加载出来，请检查连接后重试。';
     }
   }
 
   aboutToDisappear() {
-    if (this.breathTimer !== -1) {
-      clearInterval(this.breathTimer);
-      this.breathTimer = -1;
-    }
     if (this.unsubscribeTheme !== null) {
       this.unsubscribeTheme();
       this.unsubscribeTheme = null;
     }
   }
 
-  startRippleAnimation() {
-    if (this.breathTimer !== -1) {
-      clearInterval(this.breathTimer);
-      this.breathTimer = -1;
+  loadLevels() {
+    const course = this.courses.find((item: CourseInfo) => item.level === this.currentLevel);
+    const cursor = courseLesson(this.courseState, this.currentLevel);
+    const nodes: LevelNodeData[] = [];
+    if (course) {
+      for (let id = 1; id <= course.lessons; id++) {
+        nodes.push(new LevelNodeData(id, id < cursor ? LevelStatus.COMPLETED : (id === cursor ? LevelStatus.CURRENT : LevelStatus.LOCKED)));
+      }
     }
-    // 水波纹向外扩散动画：3层波纹循环扩散
-    this.breathTimer = setInterval(() => {
-      this.ripplePhase += 0.025;  // 降低速度，更柔和的扩散节奏
-
-      // 第1层波纹 - 最内层，先扩散
-      const phase1 = this.ripplePhase % 1;
-      this.breathScale = 1.0 + phase1 * 0.25;  // 1.0 -> 1.25
-      this.breathOpacity = 0.6 * (1 - phase1);  // 0.6 -> 0
-
-      // 第2层波纹 - 中层，延迟0.33个周期
-      const phase2 = (this.ripplePhase + 0.67) % 1;
-      this.ripple2Scale = 1.0 + phase2 * 0.25;
-      this.ripple2Opacity = 0.4 * (1 - phase2);
-
-      // 第3层波纹 - 外层，延迟0.67个周期
-      const phase3 = (this.ripplePhase + 0.33) % 1;
-      this.ripple3Scale = 1.0 + phase3 * 0.25;
-      this.ripple3Opacity = 0.3 * (1 - phase3);
-    }, 60);  // 增加间隔时间
+    this.levels = nodes;
+    this.lessonData.replace(nodes);
   }
 
-  loadLevels() {
-    // 根据当前选择的 Tab 获取 level 值
-    const levelValues: number[] = [1, 2, 0];  // TOPIK I, TOPIK II, 常考单词
-    this.currentLevel = levelValues[this.selectedTabIndex];
+  private selectedCourse(): CourseInfo {
+    return this.courses.find((item: CourseInfo) => item.level === this.currentLevel) || new CourseInfo(1, '选择课程', 0, 0);
+  }
 
-    // 优先使用 API lesson_count，其次用 word_count 计算，最后回退到默认 10
-    let lessonCount: number;
-    const apiLessonCount = this.levelLessonCounts.get(this.currentLevel) || 0;
-    if (apiLessonCount > 0) {
-      lessonCount = apiLessonCount;
-    } else {
-      const wordCount = this.levelWordCounts.get(this.currentLevel) || 0;
-      if (wordCount > 0) {
-        lessonCount = Math.ceil(wordCount / this.wordsPerLesson);
-      } else {
-        lessonCount = 10;  // API 未加载时的最小回退
+  private completedCount(course: CourseInfo): number {
+    return Math.min(course.lessons, Math.max(0, courseLesson(this.courseState, course.level) - 1));
+  }
+
+  private courseDescription(level: number): string {
+    return level === 1 ? '初级 · 日常表达与基础词汇' : (level === 2 ? '中高级 · 丰富表达与观点词汇' : '专项词汇 · 生活常用表达');
+  }
+
+  private wordsInLesson(id: number): number {
+    const course = this.selectedCourse();
+    return course.words > 0 ? Math.max(0, Math.min(this.wordsPerLesson, course.words - (id - 1) * this.wordsPerLesson)) : this.wordsPerLesson;
+  }
+
+  private courseHeading(level: number): string {
+    return level === 1 ? '从日常表达，慢慢开始' : (level === 2 ? '让表达，变得更丰富' : '把常用词，带进生活');
+  }
+
+  private async selectCourse(course: CourseInfo): Promise<void> {
+    try {
+      if (course.level !== this.currentLevel) {
+        await PreferencesService.getInstance().selectCourse(course.level);
+        this.courseState = await PreferencesService.getInstance().getLearningState();
+        this.currentLevel = course.level;
+        this.loadLevels();
+        this.mapScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+      }
+      this.showCourseSheet = false;
+    } catch (error) {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: '课程选择没有保存，请重试。' });
+      } catch (toastError) {
+        console.warn('[StudyContent] course selection notification unavailable');
       }
     }
-
-    // 确定当前 Tab 下的学习进度（只有当前选中的 level 与学习进度的 level 匹配时才显示进度）
-    const isCurrentProgressTab = (this.currentLevel === this.currentProgressLevel);
-    const progressLesson = isCurrentProgressTab ? this.currentLessonId : 0;
-
-    // 生成关卡节点
-    const newLevels: LevelNodeData[] = [];
-    const displayCount = Math.min(lessonCount, 10);  // 显示前 10 关
-    for (let i = 1; i <= displayCount; i++) {
-      const node = new LevelNodeData(i, LevelStatus.LOCKED, 0);
-
-      if (isCurrentProgressTab) {
-        if (i < progressLesson) {
-          node.status = LevelStatus.COMPLETED;
-          node.stars = 3;
-        } else if (i === progressLesson) {
-          node.status = LevelStatus.CURRENT;
-          node.stars = 2;
-        }
-        // i > progressLesson 保持 LOCKED
-      }
-      // 非当前进度的 Tab，全部保持 LOCKED
-
-      newLevels.push(node);
-    }
-    this.levels = newLevels;
   }
 
   build() {
     Column() {
       if (!this.authChecked) {
-        Column() {
-          LoadingProgress()
-            .width(42)
-            .height(42)
-            .color(COLORS.PRIMARY)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
+        LoadingProgress().width(42).height(42).color(COLORS.PRIMARY)
       } else if (this.requiresLogin) {
-        AuthRequiredState({
-          title: '注册后开始学习',
-          description: '试运行阶段需要先登录 / 注册，才能解锁学习路径与关卡内容。',
-          source: 'study_tab_gate',
-        })
+        AuthRequiredState({ title: '注册后开始学习', description: '登录后，选择课程开始学习。', source: 'study_tab_gate' })
       } else {
         this.StudyHeader()
-        // 分段选择器
-        Column() {
-          this.TabSelector()
-          this.MemberQuotaBanner()
-        }
-        .width('100%')
-        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
-
-        // 关卡地图
         this.LevelMap()
       }
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(COLORS.BACKGROUND)
-    .onAppear(() => {
-      const context = getContext(this);
-      void this.refreshAccessState(context);
-      void this.loadUserInfo(context);
+    .width('100%').height('100%').backgroundColor(COLORS.BACKGROUND)
+    .bindSheet($$this.showCourseSheet, this.CourseSheet(), {
+      height: '76%', showClose: true, dragBar: false, backgroundColor: COLORS.SURFACE,
+      title: { title: '选择课程' }, onDisappear: () => { this.showCourseSheet = false; }
     })
   }
 
   @Builder
   StudyHeader() {
     Row({ space: 12 }) {
-      Column({ space: 6 }) {
-        Text('学习地图')
-          .fontSize(UI.TITLE_SIZE)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
-        Text('把韩语学习，变成每天的小进步')
-          .fontSize(UI.CAPTION_SIZE)
-          .fontColor(COLORS.TEXT_SECONDARY)
+      Button() {
+        Row({ space: 8 }) {
+          Text(this.selectedCourse().name).fontSize(18).fontWeight(FontWeight.Bold)
+            .fontColor(COLORS.TEXT_PRIMARY).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .constraintSize({ maxWidth: Math.max(44, this.courseHeaderContentWidth - 135) })
+          Image($r('app.media.lg145_chevron_down'))
+            .width(18).height(18).objectFit(ImageFit.Contain)
+            .rotate({ angle: this.showCourseSheet ? 180 : 0 })
+        }.justifyContent(FlexAlign.Start).alignItems(VerticalAlign.Center)
       }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      Image($r('app.media.lingai_robot'))
-        .width(56)
-        .height(56)
-        .objectFit(ImageFit.Contain)
+      .type(ButtonType.Normal).backgroundColor(UI.GREEN_SOFT)
+      .padding({ left: 12, right: 12 }).height(44).borderRadius(12)
+      .constraintSize({ maxWidth: Math.max(94, this.courseHeaderContentWidth - 85) })
+      .accessibilityText(`当前课程 ${this.selectedCourse().name}，选择课程`)
+      .onClick(() => { this.showCourseSheet = true; })
+      Blank().layoutWeight(1)
+      Button('生词本').type(ButtonType.Normal).height(44).padding({ left: 10, right: 0 })
+        .backgroundColor(Color.Transparent).fontColor(COLORS.PRIMARY).fontSize(13)
+        .onClick(() => { if (this.onOpenVocabulary) { this.onOpenVocabulary(); } })
     }
-    .width('100%')
-    .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 16 })
-  }
-
-  @Builder
-  TabSelector() {
-    Stack() {
-      // 滑块指示器（底层）
-      Row()
-        .width('33%')
-        .height('100%')
-        .backgroundColor(COLORS.PRIMARY)
-        .borderRadius(16)
-        .shadow({ radius: 6, color: UI.SHADOW, offsetY: 2 })
-        .margin({ left: this.getSliderMargin() })
-        .animation({ duration: 300, curve: Curve.EaseOut })
-
-      // Tab文字（上层）
-      Row() {
-        ForEach(['TOPIK I', 'TOPIK II', '必备单词'], (tab: string, index: number) => {
-          Text(tab)
-            .fontSize(14)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.selectedTabIndex === index ? UI.ON_PRIMARY : COLORS.TEXT_SECONDARY)
-            .textAlign(TextAlign.Center)
-            .layoutWeight(1)
-            .height('100%')
-            .onClick(() => {
-              this.selectedTabIndex = index;
-              this.loadLevels();
-            })
-        })
-      }
-      .width('100%')
-      .height('100%')
-    }
-    .width('100%')
-    .height(52)
-    .padding(4)
-    .margin({ bottom: 16 })
+    .width('100%').padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 12 })
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(20)
-    .border({ width: 1, color: COLORS.BORDER })
-    .shadow({ radius: 8, color: UI.SHADOW, offsetY: 2 })
-    .alignContent(Alignment.Start)
-  }
-
-  // 计算滑块左边距
-  getSliderMargin(): Length {
-    // 每个Tab占33%，根据选中的index计算margin
-    const margins: Length[] = [0, '33%', '66%'];
-    return margins[this.selectedTabIndex];
-  }
-
-  // 预定义的蜿蜒X位置百分比（增大差异以增加蜿蜒弧度）
-  private readonly NODE_POSITIONS: number[] = [0.12, 0.85, 0.3, 0.7, 0.15, 0.8, 0.25, 0.75, 0.2, 0.85];
-
-  getNodeXPosition(index: number): number {
-    return this.NODE_POSITIONS[index % this.NODE_POSITIONS.length];
-  }
-
-  @Builder
-  MemberQuotaBanner() {
-    Row() {
-      Column() {
-        Text('今日学习额度')
-          .fontSize(12)
-          .fontColor(COLORS.TEXT_SECONDARY)
-
-        Text(this.lessonQuotaSummary())
-          .fontSize(UI.BODY_SIZE)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(COLORS.TEXT_PRIMARY)
-          .margin({ top: 4 })
-
-        Text(this.lessonQuotaCaption())
-          .fontSize(UI.CAPTION_SIZE)
-          .lineHeight(19)
-          .fontColor(COLORS.TEXT_HINT)
-          .margin({ top: 6 })
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-
-      Text(this.lessonQuotaBadge())
-        .fontSize(12)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.lessonQuotaBadgeTextColor())
-        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-        .backgroundColor(this.lessonQuotaBadgeBackground())
-        .borderRadius(999)
-    }
-    .width('100%')
-    .padding(18)
-    .margin({ bottom: 12 })
-    .backgroundColor(COLORS.SURFACE)
-    .borderRadius(20)
-    .border({ width: 1, color: COLORS.BORDER })
-  }
-
-  @Builder
-  LevelMap() {
-    Scroll() {
-      Column({ space: 0 }) {
-        // 反转顺序：从上往下显示锁定→当前→完成
-        // 使用索引直接计算而不是const
-        ForEach(this.levels.slice().reverse(), (level: LevelNodeData, reverseIndex: number) => {
-          Column() {
-            // 连接线（第一个节点上方不需要）
-            if (reverseIndex > 0) {
-              this.ConnectionLine(this.levels.length - 1 - reverseIndex)
-            }
-
-            // 节点 - 使用计算的原始索引
-            Row() {
-              Blank().layoutWeight(this.getNodeXPosition(this.levels.length - 1 - reverseIndex))
-              this.LevelNode(level)
-              Blank().layoutWeight(1 - this.getNodeXPosition(this.levels.length - 1 - reverseIndex))
-            }
-            .width('100%')
-          }
-        })
-      }
-      .width('100%')
-      .padding({ left: 30, right: 30, top: 30, bottom: 192 })
-    }
-    .width('100%')
-    .layoutWeight(1)
-    .scrollBar(BarState.Off)
-  }
-
-  // 辅助方法：计算插值位置（让路径端点恰好接触节点边缘，不进入内部）
-  getInterpolatedX(index: number, step: number): number {
-    const currentX = this.getNodeXPosition(index);
-    const prevX = this.getNodeXPosition(index + 1);
-    // 路径从15%到85%之间插值，让端点恰好接触节点边缘
-    const tMin = 0.12;   // 起始偏移
-    const tMax = 0.88;   // 结束偏移
-    const t = tMin + (tMax - tMin) * (step / 6);
-    return prevX + (currentX - prevX) * t;
-  }
-
-  @Builder
-  ConnectionLine(index: number) {
-    // 曲线虚线连接节点，使用椭圆形脚印（7个点延伸到节点中心）
-    Column({ space: 5 }) {
-      Row() {
-        Blank().layoutWeight(this.getInterpolatedX(index, 0))
-        Ellipse().width(12).height(7).fill(COLORS.BORDER)
-        Blank().layoutWeight(1 - this.getInterpolatedX(index, 0))
-      }.width('100%')
-
-      Row() {
-        Blank().layoutWeight(this.getInterpolatedX(index, 1))
-        Ellipse().width(12).height(7).fill(COLORS.BORDER)
-        Blank().layoutWeight(1 - this.getInterpolatedX(index, 1))
-      }.width('100%')
-
-      Row() {
-        Blank().layoutWeight(this.getInterpolatedX(index, 2))
-        Ellipse().width(11).height(6).fill(COLORS.BORDER)
-        Blank().layoutWeight(1 - this.getInterpolatedX(index, 2))
-      }.width('100%')
-
-      Row() {
-        Blank().layoutWeight(this.getInterpolatedX(index, 3))
-        Ellipse().width(11).height(6).fill(COLORS.BORDER)
-        Blank().layoutWeight(1 - this.getInterpolatedX(index, 3))
-      }.width('100%')
-
-      Row() {
-        Blank().layoutWeight(this.getInterpolatedX(index, 4))
-        Ellipse().width(10).height(6).fill(COLORS.BORDER)
-        Blank().layoutWeight(1 - this.getInterpolatedX(index, 4))
-      }.width('100%')
-
-      Row() {
-        Blank().layoutWeight(this.getInterpolatedX(index, 5))
-        Ellipse().width(10).height(5).fill(COLORS.BORDER)
-        Blank().layoutWeight(1 - this.getInterpolatedX(index, 5))
-      }.width('100%')
-
-      Row() {
-        Blank().layoutWeight(this.getInterpolatedX(index, 6))
-        Ellipse().width(10).height(5).fill(COLORS.BORDER)
-        Blank().layoutWeight(1 - this.getInterpolatedX(index, 6))
-      }.width('100%')
-    }
-    .width('100%')
-    .height(50)
-  }
-
-  @Builder
-  LevelNode(level: LevelNodeData) {
-    Stack() {
-      // 水波纹扩散动画（仅当前关卡）
-      if (level.status === LevelStatus.CURRENT) {
-        // 第3层波纹 - 最外层
-        Circle()
-          .width(84)
-          .height(84)
-          .fill(Color.Transparent)
-          .stroke(UI.BLUE)
-          .opacity(this.ripple3Opacity)
-          .strokeWidth(2)
-          .scale({ x: this.ripple3Scale, y: this.ripple3Scale })
-
-        // 第2层波纹 - 中层
-        Circle()
-          .width(84)
-          .height(84)
-          .fill(Color.Transparent)
-          .stroke(UI.BLUE)
-          .opacity(this.ripple2Opacity)
-          .strokeWidth(2)
-          .scale({ x: this.ripple2Scale, y: this.ripple2Scale })
-
-        // 第1层波纹 - 内层
-        Circle()
-          .width(84)
-          .height(84)
-          .fill(Color.Transparent)
-          .stroke(UI.BLUE)
-          .opacity(this.breathOpacity)
-          .strokeWidth(2)
-          .scale({ x: this.breathScale, y: this.breathScale })
-
-        // 固定内层光环
-        Circle()
-          .width(88)
-          .height(88)
-          .fill(Color.Transparent)
-          .stroke(COLORS.SURFACE)
-          .strokeWidth(3)
-      }
-
-      // 主圆形节点
-      Circle()
-        .width(80)
-        .height(80)
-        .fill(this.getNodeColor(level.status))
-
-      // 节点内容
-      if (level.status === LevelStatus.LOCKED) {
-        // 锁定：显示锁图标
-        Image($r('app.media.ic_lock'))
-          .width(32)
-          .height(32)
-          .fillColor(COLORS.TEXT_HINT)
-      } else if (level.status === LevelStatus.COMPLETED) {
-        // 已完成：显示白色对勾
-        Image($r('app.media.ic_check'))
-          .width(36)
-          .height(36)
-          .fillColor(UI.ON_PRIMARY)
-      } else {
-        // 当前关卡：显示关卡号和星星
-        Column() {
-          Row({ space: 4 }) {
-            Image($r('app.media.lingai_robot'))
-              .width(26)
-              .height(26)
-            Text(level.id.toString())
-              .fontSize(26)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(UI.ON_BLUE)
-          }
-
-          Row({ space: 3 }) {
-            Text('⭐')
-              .fontSize(12)
-            Text('⭐')
-              .fontSize(12)
-          }
-          .margin({ top: 4 })
-        }
-      }
-    }
-    .width(100)
-    .height(100)
-    .onClick(() => {
-      if (level.status !== LevelStatus.LOCKED) {
-        this.goToLesson(level.id);
+    .onAreaChange((_oldArea, newArea) => {
+      const width = Number(newArea.width) - UI.PAGE_INSET * 2;
+      if (Number.isFinite(width) && width > 0 && width !== this.courseHeaderContentWidth) {
+        this.courseHeaderContentWidth = width;
       }
     })
   }
 
-  getNodeColor(status: LevelStatus): ResourceColor {
-    switch (status) {
-      case LevelStatus.COMPLETED:
-        return COLORS.SUCCESS;  // 绿色
-      case LevelStatus.CURRENT:
-        return UI.BLUE;  // 当前关卡
-      default:
-        return UI.SURFACE_MUTED;  // 锁定
+  @Builder
+  CourseSheet() {
+    Scroll() {
+      Column({ space: 12 }) {
+        ForEach(['等级课程', '专项词汇'], (group: string, groupIndex: number) => {
+          Text(group).fontSize(12).fontColor(COLORS.TEXT_SECONDARY).width('100%').margin({ top: 12 })
+          ForEach(this.courses.filter((course: CourseInfo) => groupIndex === 0 ? course.level !== 0 : course.level === 0), (course: CourseInfo) => {
+            Button() {
+              Row({ space: 10 }) {
+                Column({ space: 6 }) {
+                  Text(course.name).fontSize(16).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+                  Text(this.courseDescription(course.level)).fontSize(11).fontColor(COLORS.TEXT_SECONDARY)
+                  Text(`已完成 ${this.completedCount(course)} / ${course.lessons} 关`).fontSize(11).fontColor(COLORS.PRIMARY)
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Text(course.level === this.currentLevel ? '✓ 当前' : '›').fontSize(12).fontColor(COLORS.PRIMARY)
+              }.width('100%').padding(15)
+            }
+            .type(ButtonType.Normal).width('100%').padding(0)
+            .backgroundColor(course.level === this.currentLevel ? UI.GREEN_SOFT : COLORS.SURFACE)
+            .border({ width: 1, color: course.level === this.currentLevel ? COLORS.PRIMARY : COLORS.BORDER })
+            .borderRadius(15).clip(true)
+            .onClick(() => { void this.selectCourse(course); })
+          }, (course: CourseInfo) => course.level.toString())
+        })
+      }.width('100%').justifyContent(FlexAlign.Start)
+      .padding({ left: 22, right: 22, bottom: 32 })
+    }.width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
+  }
+
+  @Builder
+  LevelMap() {
+    List({ space: 12, scroller: this.mapScroller }) {
+      ListItem() {
+        Column({ space: 12 }) {
+        if (this.loadingCourses) {
+          LoadingProgress().width(40).height(40).color(COLORS.PRIMARY)
+          Text('正在加载课程').fontSize(13).fontColor(COLORS.TEXT_SECONDARY)
+        } else if (this.contentError !== '') {
+          Text(this.contentError).fontSize(14).fontColor(COLORS.TEXT_SECONDARY).lineHeight(22)
+          Button('重新加载').onClick(() => { void this.refreshForVisibleTab(); })
+        } else {
+          Column({ space: 12 }) {
+            Text(this.courseDescription(this.currentLevel)).fontSize(11).fontColor(COLORS.PRIMARY).width('100%')
+            Text(this.courseHeading(this.currentLevel)).fontSize(22).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY).width('100%')
+            Row({ space: 13 }) {
+              Progress({ value: this.completedCount(this.selectedCourse()), total: Math.max(1, this.selectedCourse().lessons), type: ProgressType.Linear })
+                .layoutWeight(1).height(5).color(COLORS.PRIMARY).backgroundColor(COLORS.BORDER)
+              Text(`已完成 ${this.completedCount(this.selectedCourse())} / ${this.selectedCourse().lessons} 关`)
+                .fontSize(11).fontColor(COLORS.PRIMARY)
+            }.width('100%')
+          }.width('100%').padding(18).backgroundColor(UI.GREEN_SOFT).borderRadius(20)
+          Text(this.lessonQuotaSummary()).fontSize(11).fontColor(COLORS.TEXT_SECONDARY).width('100%')
+          Row() {
+            Text('学习路线').fontSize(16).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+            Blank()
+            Text(`${this.levels.length} 个关卡`).fontSize(12).fontColor(COLORS.TEXT_SECONDARY)
+          }.width('100%').margin({ top: 7, bottom: 2 })
+        }
+        }.width('100%')
+      }
+      if (!this.loadingCourses && this.contentError === '') {
+        LazyForEach(this.lessonData, (level: LevelNodeData) => {
+          ListItem() { this.LevelNode(level) }
+        }, (level: LevelNodeData) => `${this.currentLevel}-${level.id}-${level.status}`)
+        ListItem() {
+          Text('每个课程，按自己的节奏学。\n学习进度分别保存，今日额度共同使用。')
+            .fontSize(12).lineHeight(20).fontColor(COLORS.TEXT_SECONDARY).width('100%')
+            .padding({ top: 8, bottom: 170 })
+        }
+      }
     }
+    .width('100%').layoutWeight(1).scrollBar(BarState.Off).cachedCount(5)
+    .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 18 })
+    .clipContent(ContentClipMode.CONTENT_ONLY)
+  }
+
+  @Builder
+  LevelNode(level: LevelNodeData) {
+    Button() {
+      Row({ space: 12 }) {
+        Stack() {
+          if (level.status === LevelStatus.LOCKED) {
+            Image($r('app.media.ic_lock')).width(18).height(18).fillColor(COLORS.TEXT_HINT)
+          } else if (level.status === LevelStatus.COMPLETED) {
+            Image($r('app.media.ic_check')).width(20).height(20).fillColor(COLORS.PRIMARY)
+          } else {
+            Text(level.id.toString()).fontSize(17).fontWeight(FontWeight.Bold).fontColor(UI.BLUE)
+          }
+        }.width(40).height(44).borderRadius(12)
+        .backgroundColor(level.status === LevelStatus.CURRENT ? UI.BLUE_SOFT : UI.GREEN_SOFT)
+        Column({ space: 5 }) {
+          Text('关卡 ' + level.id).fontSize(14).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+          Text(`${this.wordsInLesson(level.id)} 个词 · ${level.status === LevelStatus.COMPLETED ? '已完成，可再练习' : (level.status === LevelStatus.CURRENT ? '可以开始' : '完成前一关后继续')}`)
+            .fontSize(11).lineHeight(18).fontColor(COLORS.TEXT_SECONDARY)
+        }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+        Text('›').fontSize(20).fontColor(COLORS.TEXT_SECONDARY)
+      }.width('100%').padding(14)
+    }
+    .type(ButtonType.Normal).width('100%').padding(0).constraintSize({ minHeight: 83 })
+    .backgroundColor(level.status === LevelStatus.CURRENT ? UI.BLUE_SOFT : COLORS.SURFACE)
+    .border({ width: 1, color: level.status === LevelStatus.CURRENT ? UI.BLUE : COLORS.BORDER })
+    .borderRadius(16).clip(true)
+    .onClick(() => { if (level.status !== LevelStatus.LOCKED) { this.goToLesson(level.id); } })
   }
 
   private lessonQuotaSummary(): string {

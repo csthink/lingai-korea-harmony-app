@@ -11,6 +11,7 @@ import { HomeContent } from '../components/HomeContent';
 import { StudyContent } from '../components/StudyContent';
 import { DictContent } from '../components/DictContent';
 import { ProfileContent } from '../components/ProfileContent';
+import { VocabularyContent } from '../components/VocabularyContent';
 import { FloatingSpirit } from '../components/FloatingSpirit';
 import { SpiritChatPanel } from '../components/SpiritChatPanel';
 import promptAction from '@ohos.promptAction';
@@ -23,9 +24,11 @@ import { UI } from '../utils/UiTokens';
 @Entry
 @Component
 struct Index {
+  @State learningRefreshVersion: number = 0;
   @State currentTabIndex: number = 0;  // 默认首页
   @State dictSearchWord: string = '';
   @State showSpiritPanel: boolean = false;
+  @State showVocabulary: boolean = false;
   @State isDarkMode: boolean = false;
   @State profileSheetMode: string = '';
   @State profileSheetRequestAt: number = 0;
@@ -58,6 +61,7 @@ struct Index {
   }
 
   onPageShow() {
+    this.learningRefreshVersion += 1;
     const context = getContext(this);
     this.isDarkMode = themeManager.isDark();
     themeManager.init(context).then(() => {
@@ -128,37 +132,57 @@ struct Index {
     return String(value);
   }
 
+  onBackPress(): boolean {
+    if (this.showVocabulary) {
+      this.showVocabulary = false;
+      this.learningRefreshVersion += 1;
+      return true;
+    }
+    return false;
+  }
+
   build() {
     Stack({ alignContent: Alignment.BottomEnd }) {
       // Tab内容区
       Tabs({ barPosition: BarPosition.End, controller: this.tabController }) {
         // 首页 Tab
         TabContent() {
-          HomeContent()
+          HomeContent({
+            refreshVersion: this.learningRefreshVersion,
+            activeTabIndex: this.currentTabIndex,
+            onOpenVocabulary: () => { this.showVocabulary = true; }
+          })
         }
-        .tabBar(this.TabBarItem('首页', $r('app.media.ic_home'), 0))
+        .tabBar(this.TabBarItem('首页', $r('app.media.lg145_nav_home'), 0))
 
         // 学习 Tab
         TabContent() {
-          StudyContent({ activeTabIndex: this.currentTabIndex })
+          StudyContent({
+            refreshVersion: this.learningRefreshVersion,
+            activeTabIndex: this.currentTabIndex,
+            onOpenVocabulary: () => { this.showVocabulary = true; }
+          })
         }
-        .tabBar(this.TabBarItem('学习', $r('app.media.ic_study'), 1))
+        .tabBar(this.TabBarItem('学习', $r('app.media.lg145_nav_study'), 1))
 
         // 词典 Tab
         TabContent() {
           this.DictTabContent()
         }
-        .tabBar(this.TabBarItem('词典', $r('app.media.ic_dict'), 2))
+        .tabBar(this.TabBarItem('词典', $r('app.media.lg145_nav_dict'), 2))
 
         // 我的 Tab
         TabContent() {
           ProfileContent({
+            refreshVersion: this.learningRefreshVersion,
             externalSheetMode: this.profileSheetMode,
             externalSheetRequestAt: this.profileSheetRequestAt,
-            activeTabIndex: this.currentTabIndex
+            activeTabIndex: this.currentTabIndex,
+            onOpenVocabulary: () => { this.showVocabulary = true; },
+            onOpenStudy: () => { this.switchToTab(1); }
           })
         }
-        .tabBar(this.TabBarItem('我的', $r('app.media.ic_mine'), 3))
+        .tabBar(this.TabBarItem('我的', $r('app.media.lg145_nav_mine'), 3))
       }
       .barMode(BarMode.Fixed)
       .barWidth('100%')
@@ -172,15 +196,18 @@ struct Index {
 
       // 悬浮精灵按钮
       FloatingSpirit({
-        subtle: this.currentTabIndex === 0,
         onPress: () => {
           this.showSpiritPanel = true;
         }
       })
       .margin({
-        right: this.currentTabIndex === 0 ? 14 : 20,
-        bottom: this.currentTabIndex === 0 ? 88 : 105
+        right: 12,
+        bottom: 89
       })
+
+      if (this.showVocabulary) {
+        this.VocabularyPage()
+      }
     }
     .width('100%')
     .height('100%')
@@ -211,9 +238,6 @@ struct Index {
       Image(icon)
         .width(24)
         .height(24)
-        .fillColor(this.currentTabIndex === index
-          ? COLORS.PRIMARY
-          : themeManager.textDim)
 
       Text(title)
         .fontSize(11)
@@ -238,40 +262,61 @@ struct Index {
       })
       .layoutWeight(1)
 
-      Row() {
-        Column({ space: 6 }) {
-          Text('小语灵助手')
-            .fontSize(UI.BODY_SIZE)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(COLORS.TEXT_PRIMARY)
-          Text('随时提问，继续练习')
-            .fontSize(UI.CAPTION_SIZE)
-            .fontColor(COLORS.TEXT_SECONDARY)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        Blank().width(88)
-      }
-      .width('100%')
-      .height(112)
-      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
-      Blank().height(UI.NAV_HEIGHT)
+      // 保留固定助手空间，长词条滚动到中段也不会位于悬浮按钮后。
+      Blank().height(UI.NAV_HEIGHT + 76)
     }
     .width('100%')
     .height('100%')
   }
 
   @Builder
+  VocabularyPage() {
+    Column() {
+      Row({ space: 8 }) {
+        Button() {
+          Image($r('app.media.ic_back')).width(20).height(20).fillColor(COLORS.TEXT_PRIMARY)
+        }
+        .width(UI.TOUCH_MIN).height(UI.TOUCH_MIN)
+        .backgroundColor(Color.Transparent)
+        .accessibilityText('返回')
+        .onClick(() => { this.showVocabulary = false;
+      this.learningRefreshVersion += 1; })
+        Text('我的生词本').fontSize(18).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+        Blank()
+      }
+      .width('100%')
+      .padding({ left: 12, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 15 })
+      .backgroundColor(UI.HEADER_BG)
+      .border({ width: { bottom: 1 }, color: COLORS.BORDER })
+      VocabularyContent({
+        isActive: this.showVocabulary,
+        onSearchWord: (word: string) => {
+          this.dictSearchWord = word;
+          this.showVocabulary = false;
+      this.learningRefreshVersion += 1;
+          this.switchToTab(2);
+        }
+      })
+      .layoutWeight(1)
+      Blank().height(24)
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(COLORS.BACKGROUND)
+    .zIndex(10)
+  }
+
+  @Builder
   BottomTabBar() {
     Row() {
-      this.BottomTabItem('首页', $r('app.media.ic_home'), 0)
-      this.BottomTabItem('学习', $r('app.media.ic_study'), 1)
-      this.BottomTabItem('词典', $r('app.media.ic_dict'), 2)
-      this.BottomTabItem('我的', $r('app.media.ic_mine'), 3)
+      this.BottomTabItem('首页', $r('app.media.lg145_nav_home'), 0)
+      this.BottomTabItem('学习', $r('app.media.lg145_nav_study'), 1)
+      this.BottomTabItem('词典', $r('app.media.lg145_nav_dict'), 2)
+      this.BottomTabItem('我的', $r('app.media.lg145_nav_mine'), 3)
     }
     .width('100%')
     .height(UI.NAV_HEIGHT)
-    .padding({ left: 8, right: 8, top: 6, bottom: 16 })
+    .padding({ left: 13, right: 13, top: 8, bottom: 13 })
     .backgroundColor(themeManager.navBg)
     .border({ width: { top: 1 }, color: themeManager.glassBorder })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
@@ -282,17 +327,13 @@ struct Index {
     Column() {
       Row() {
         Image(icon)
-          .width(22)
-          .height(22)
-          .fillColor(this.currentTabIndex === index
-            ? COLORS.PRIMARY
-            : themeManager.textDim)
+          .width(20)
+          .height(20)
       }
       .width(54)
       .height(32)
       .justifyContent(FlexAlign.Center)
       .borderRadius(12)
-      .backgroundColor(this.currentTabIndex === index ? UI.GREEN_SOFT : Color.Transparent)
 
       Text(title)
         .fontSize(12)
@@ -304,6 +345,8 @@ struct Index {
     }
     .layoutWeight(1)
     .height('100%')
+    .borderRadius(11)
+    .backgroundColor(this.currentTabIndex === index ? UI.GREEN_SOFT : Color.Transparent)
     .justifyContent(FlexAlign.Center)
     .onClick(() => {
       this.currentTabIndex = index;

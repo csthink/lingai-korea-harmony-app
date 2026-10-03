@@ -4,6 +4,7 @@
  * 适配 ArkTS 严格模式
  */
 import { COLORS, API_BASE_URL, BIZ_API_PREFIX } from '../utils/Constants';
+import { AssistantAvatar } from './AssistantAvatar';
 import { UI } from '../utils/UiTokens';
 import { WordEntry, DictAIResponse, DictSearchResponse, ExampleSentence, Sense, MeaningDetail, Collocation, SynonymWord, RelatedWord, CategoryExample, UserInfo } from '../models/DataModels';
 import { WordCard } from './WordCard';
@@ -50,6 +51,7 @@ export struct DictContent {
   @Prop embedMode: boolean = false;
   
   @State searchText: string = '';
+  @State searchDirection: string = 'auto';
   @State isLoading: boolean = false;
   @State searchResults: WordEntry[] = [];
   @State aiSupplement: DictAIResponse | null = null;
@@ -97,6 +99,7 @@ export struct DictContent {
     }
     if (this.searchWordFromExternal && this.searchWordFromExternal.length > 0) {
       console.info(`[DictContent] External search triggered: ${this.searchWordFromExternal}`);
+      this.searchDirection = 'auto';
       this.searchText = this.searchWordFromExternal;
       this.performStreamingSearch();
     }
@@ -122,6 +125,22 @@ export struct DictContent {
   private sseBuffer: string = '';
   private sseGotResult: boolean = false;
   private sseFallbackTriggered: boolean = false;
+  private searchEpoch: number = 0;
+
+  private invalidateSearch(): number {
+    this.searchEpoch += 1;
+    if (this.activeHttpRequest !== null) {
+      this.releaseStream(this.activeHttpRequest);
+    }
+    this.isLoading = false;
+    this.isStreaming = false;
+    return this.searchEpoch;
+  }
+
+  private releaseStream(request: http.HttpRequest): void {
+    if (this.activeHttpRequest === request) this.activeHttpRequest = null;
+    try { request.destroy(); } catch (_error) { /* Request already closed. */ }
+  }
 
   async aboutToAppear() {
     if (this.unsubscribeTheme === null) {
@@ -153,6 +172,7 @@ export struct DictContent {
     // 如果有初始搜索词，执行搜索
     if (this.searchWordFromExternal && this.searchWordFromExternal.length > 0) {
       console.info(`[DictContent] Initial search triggered: ${this.searchWordFromExternal}`);
+      this.searchDirection = 'auto';
       this.searchText = this.searchWordFromExternal;
       this.performStreamingSearch();
     }
@@ -168,6 +188,7 @@ export struct DictContent {
   }
 
   aboutToDisappear() {
+    this.invalidateSearch();
     if (this.unsubscribeTheme !== null) {
       this.unsubscribeTheme();
       this.unsubscribeTheme = null;
@@ -326,6 +347,7 @@ export struct DictContent {
 
   // 点击历史记录
   onHistoryItemClick(query: string) {
+    this.searchDirection = 'auto';
     this.searchText = query;
     this.showHistory = false;
     // 隐藏键盘
@@ -473,6 +495,7 @@ export struct DictContent {
   // 点击历史导航项
   onBrowseHistoryClick(word: string, index: number) {
     this.currentHistoryIndex = index;
+    this.searchDirection = 'auto';
     this.searchText = word;
     this.textInputController.stopEditing();
     // 直接执行搜索，不再添加到历史（避免重复）
@@ -484,12 +507,14 @@ export struct DictContent {
     if (this.requiresLogin) {
       return;
     }
+    const requestEpoch = this.invalidateSearch();
     const query = this.searchText.trim();
+    const requestDirection = this.searchDirection;
     if (query.length === 0) {
       return;
     }
 
-    if (this.tryApplyCachedResult(query, false, false)) {
+    if (this.tryApplyCachedResult(query, false, false, requestDirection)) {
       return;
     }
     
@@ -499,14 +524,15 @@ export struct DictContent {
     this.aiSupplement = null;
 
     try {
-      const response = await this.apiService.searchDict(query, 'auto');
+      const response = await this.apiService.searchDict(query, requestDirection);
+      if (requestEpoch !== this.searchEpoch) return;
 
       if (response !== null) {
         this.searchResults = response.results;
         this.aiSupplement = response.aiSupplement;
         this.resultSource = response.source;
         this.resultDirection = response.direction;
-        this.saveSearchResultCache(query, response.results, response.aiSupplement, response.source, response.direction);
+        this.saveSearchResultCache(query, response.results, response.aiSupplement, response.source, response.direction, requestDirection);
 
         if (this.searchResults.length > 0) {
           const firstWord = this.searchResults[0];
@@ -514,6 +540,7 @@ export struct DictContent {
         }
       }
     } catch (error) {
+      if (requestEpoch !== this.searchEpoch) return;
       if (error instanceof ApiError && (error.code === 2001 || error.code === 2006)) {
         this.requiresLogin = true;
       }
@@ -522,16 +549,25 @@ export struct DictContent {
       }
       console.error('Search failed:', JSON.stringify(error));
     } finally {
-      this.isLoading = false;
-      void this.refreshQuotaInfo();
+      if (requestEpoch === this.searchEpoch) {
+        this.isLoading = false;
+        void this.refreshQuotaInfo();
+      }
     }
   }
 
-  async performSearch() {
+  async performSearch(queryOverride: string = '', directionOverride: string = '', inheritedEpoch: number = -1) {
     if (this.requiresLogin) {
       return;
     }
-    const query = this.searchText.trim();
+    if (inheritedEpoch >= 0 && inheritedEpoch !== this.searchEpoch) return;
+    const requestEpoch = inheritedEpoch >= 0 ? inheritedEpoch : this.invalidateSearch();
+    if (inheritedEpoch >= 0 && this.activeHttpRequest !== null) {
+      this.releaseStream(this.activeHttpRequest);
+      this.isStreaming = false;
+    }
+    const query = queryOverride || this.searchText.trim();
+    const requestDirection = directionOverride || this.searchDirection;
     if (query.length === 0) {
       this.searchResults = [];
       this.aiSupplement = null;
@@ -539,7 +575,7 @@ export struct DictContent {
       return;
     }
 
-    if (this.tryApplyCachedResult(query, true, true)) {
+    if (this.tryApplyCachedResult(query, true, true, requestDirection)) {
       return;
     }
 
@@ -548,13 +584,14 @@ export struct DictContent {
     this.showHistory = false;
 
     try {
-      const response = await this.apiService.searchDict(query);
+      const response = await this.apiService.searchDict(query, requestDirection);
+      if (requestEpoch !== this.searchEpoch) return;
       if (response !== null) {
         this.searchResults = response.results;
         this.aiSupplement = response.aiSupplement;
         this.resultSource = response.source;
         this.resultDirection = response.direction;
-        this.saveSearchResultCache(query, response.results, response.aiSupplement, response.source, response.direction);
+        this.saveSearchResultCache(query, response.results, response.aiSupplement, response.source, response.direction, requestDirection);
         
         // 搜索成功后添加到历史
         this.addToHistory(query);
@@ -575,6 +612,7 @@ export struct DictContent {
         this.resultSource = '';
       }
     } catch (error) {
+      if (requestEpoch !== this.searchEpoch) return;
       if (error instanceof ApiError && (error.code === 2001 || error.code === 2006)) {
         this.requiresLogin = true;
       }
@@ -585,8 +623,10 @@ export struct DictContent {
       this.searchResults = [];
       this.aiSupplement = null;
     } finally {
-      this.isLoading = false;
-      void this.refreshQuotaInfo();
+      if (requestEpoch === this.searchEpoch) {
+        this.isLoading = false;
+        void this.refreshQuotaInfo();
+      }
     }
   }
 
@@ -599,7 +639,9 @@ export struct DictContent {
     if (this.requiresLogin) {
       return;
     }
+    const requestEpoch = this.invalidateSearch();
     const query = this.searchText.trim();
+    const requestDirection = this.searchDirection;
     if (query.length === 0) {
       this.searchResults = [];
       this.aiSupplement = null;
@@ -607,16 +649,8 @@ export struct DictContent {
       return;
     }
 
-    if (this.tryApplyCachedResult(query, true, true)) {
+    if (this.tryApplyCachedResult(query, true, true, requestDirection)) {
       return;
-    }
-
-    // ===== 并发保护：终止上一条流式请求 =====
-    if (this.activeHttpRequest !== null) {
-      try {
-        this.activeHttpRequest.destroy();
-      } catch (_e) { /* ignore */ }
-      this.activeHttpRequest = null;
     }
 
     // 直接显示“AI正在分析”
@@ -636,7 +670,7 @@ export struct DictContent {
     this.sseFallbackTriggered = false;
 
     const encodedQuery = encodeURIComponent(query);
-    const url = `${API_BASE_URL}${BIZ_API_PREFIX}/api/dict/search/stream?query=${encodedQuery}&direction=auto`;
+    const url = `${API_BASE_URL}${BIZ_API_PREFIX}/api/dict/search/stream?query=${encodedQuery}&direction=${requestDirection}`;
 
     const httpRequest = http.createHttp();
     this.activeHttpRequest = httpRequest;
@@ -645,7 +679,7 @@ export struct DictContent {
     // ===== dataReceive：缓冲区累积 + \n\n 分割完整事件 =====
     httpRequest.on('dataReceive', (data: ArrayBuffer) => {
       // 并发保护：如果已不是当前活跃请求，忽略回调
-      if (this.activeHttpRequest !== httpRequest) return;
+      if (requestEpoch !== this.searchEpoch || this.activeHttpRequest !== httpRequest) return;
 
       const textDecoder = util.TextDecoder.create('utf-8');
       const uint8Array = new Uint8Array(data);
@@ -678,7 +712,7 @@ export struct DictContent {
             if (type === 'cached') {
               console.info('[DictContent] SSE: Cache hit');
               this.sseGotResult = true;
-              this.handleSearchResult(eventData as Record<string, Object>);
+              this.handleSearchResult(eventData as Record<string, Object>, query, requestDirection);
               this.isLoading = false;
               this.isStreaming = false;
             } else if (type === 'token') {
@@ -690,7 +724,7 @@ export struct DictContent {
               console.info('[DictContent] SSE: Streaming done');
               this.sseGotResult = true;
               this.isStreaming = false;
-              this.handleSearchResult(eventData as Record<string, Object>);
+              this.handleSearchResult(eventData as Record<string, Object>, query, requestDirection);
             } else if (type === 'error') {
               const errorMsg = json['message'] as string || 'Unknown error';
               console.error('[DictContent] SSE error: ' + errorMsg);
@@ -699,8 +733,9 @@ export struct DictContent {
               // 错误回退：仅触发一次
               if (!this.sseFallbackTriggered) {
                 this.sseFallbackTriggered = true;
-                this.performSearch();
+                this.performSearch(query, requestDirection, requestEpoch);
               }
+              return;
             }
           } catch (_parseErr) {
             // 忽略单条解析错误
@@ -711,8 +746,9 @@ export struct DictContent {
 
     // ===== dataEnd：结束兔底 =====
     httpRequest.on('dataEnd', () => {
+      if (requestEpoch !== this.searchEpoch || this.activeHttpRequest !== httpRequest) return;
       console.info('[DictContent] SSE: Stream ended');
-      this.isLoading = false;
+      if (!this.sseFallbackTriggered) this.isLoading = false;
       this.isStreaming = false;
 
       // 尝试解析缓冲区中残余数据
@@ -730,7 +766,7 @@ export struct DictContent {
             const eventData = json['data'];
             if (type === 'cached' || type === 'done') {
               this.sseGotResult = true;
-              this.handleSearchResult(eventData as Record<string, Object>);
+              this.handleSearchResult(eventData as Record<string, Object>, query, requestDirection);
             }
           } catch (_e) { /* ignore */ }
         }
@@ -741,47 +777,55 @@ export struct DictContent {
       if (!this.sseGotResult && this.aiSupplement === null && !this.sseFallbackTriggered) {
         console.warn('[DictContent] SSE: No result received, fallback to normal search');
         this.sseFallbackTriggered = true;
-        this.performSearch();
+        this.performSearch(query, requestDirection, requestEpoch);
       } else {
         this.addToHistory(query);
         this.addToBrowseHistory(query);
         this.isInVocabulary = this.vocabularyService.hasWord(query);
       }
 
-      // 清理引用
-      if (this.activeHttpRequest === httpRequest) {
-        this.activeHttpRequest = null;
-      }
+      // 完成后释放网络资源；fallback 已释放时不重复处理。
+      if (this.activeHttpRequest === httpRequest) this.releaseStream(httpRequest);
     });
 
-    // 构建签名鉴权请求头
-    const apiService = ApiService.getInstance();
-    const sseHeaders = await apiService.buildSignedHeaders('', true);
-    sseHeaders['Accept'] = 'text/event-stream';
-    sseHeaders['Cache-Control'] = 'no-cache';
-    sseHeaders['Content-Type'] = '';
+    try {
+      // 构建签名鉴权请求头
+      const apiService = ApiService.getInstance();
+      const sseHeaders = await apiService.buildSignedHeaders('', true);
+      if (requestEpoch !== this.searchEpoch || this.activeHttpRequest !== httpRequest) return;
+      sseHeaders['Accept'] = 'text/event-stream';
+      sseHeaders['Cache-Control'] = 'no-cache';
+      sseHeaders['Content-Type'] = '';
 
-    const options: http.HttpRequestOptions = {
-      method: http.RequestMethod.GET,
-      header: sseHeaders,
-      expectDataType: http.HttpDataType.STRING
-    };
+      const options: http.HttpRequestOptions = {
+        method: http.RequestMethod.GET,
+        header: sseHeaders,
+        expectDataType: http.HttpDataType.STRING
+      };
 
-    httpRequest.requestInStream(url, options, (err: BusinessError, data: number) => {
-      if (err) {
-        console.error('[DictContent] SSE request error: ' + JSON.stringify(err));
-        this.isLoading = false;
-        this.isStreaming = false;
-        if (this.activeHttpRequest === httpRequest) {
-          this.activeHttpRequest = null;
+      httpRequest.requestInStream(url, options, (err: BusinessError, data: number) => {
+        if (requestEpoch !== this.searchEpoch || this.activeHttpRequest !== httpRequest) return;
+        if (err) {
+          console.error('[DictContent] SSE request error: ' + JSON.stringify(err));
+          this.isLoading = false;
+          this.isStreaming = false;
+          this.releaseStream(httpRequest);
+          // SSE请求失败回退（仅一次）
+          if (!this.sseFallbackTriggered) {
+            this.sseFallbackTriggered = true;
+            this.performSearch(query, requestDirection, requestEpoch);
+          }
         }
-        // SSE请求失败回退（仅一次）
-        if (!this.sseFallbackTriggered) {
-          this.sseFallbackTriggered = true;
-          this.performSearch();
-        }
-      }
-    });
+      });
+    } catch (_error) {
+      if (requestEpoch !== this.searchEpoch || this.activeHttpRequest !== httpRequest) return;
+      this.releaseStream(httpRequest);
+      this.isLoading = false;
+      this.isStreaming = false;
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: '查询暂时无法发送，请稍后重试', duration: 2500 });
+      } catch (_toastError) { /* The page may have already closed. */ }
+    }
   }
 
   /**
@@ -851,7 +895,7 @@ export struct DictContent {
   /**
    * 处理搜索结果 - 解析JSON并更新状态
    */
-  private handleSearchResult(data: Record<string, Object>): void {
+  private handleSearchResult(data: Record<string, Object>, query: string, requestDirection: string): void {
     this.resultSource = data['source'] as string || '';
     this.resultDirection = data['direction'] as string || '';
     this.searchResults = [];
@@ -959,11 +1003,12 @@ export struct DictContent {
     }
 
     this.saveSearchResultCache(
-      this.searchText.trim(),
+      query,
       this.searchResults,
       this.aiSupplement,
       this.resultSource,
-      this.resultDirection
+      this.resultDirection,
+      requestDirection
     );
 
     void this.refreshQuotaInfo();
@@ -973,6 +1018,7 @@ export struct DictContent {
     this.searchText = value;
     // 不再自动搜索，等待用户手动触发
     if (value.trim().length === 0) {
+      this.invalidateSearch();
       this.searchResults = [];
       this.aiSupplement = null;
       this.hasSearched = false;
@@ -980,6 +1026,7 @@ export struct DictContent {
   }
 
   clearSearch() {
+    this.invalidateSearch();
     this.searchText = '';
     this.searchResults = [];
     this.aiSupplement = null;
@@ -1154,7 +1201,8 @@ export struct DictContent {
     results: WordEntry[],
     aiSupplement: DictAIResponse | null,
     resultSource: string,
-    resultDirection: string
+    resultDirection: string,
+    requestDirection: string
   ): void {
     const normalizedQuery = this.normalizeQuery(query);
     if (normalizedQuery.length === 0) {
@@ -1167,16 +1215,16 @@ export struct DictContent {
     cacheEntry.results = this.cloneWordEntries(results);
     cacheEntry.aiSupplement = this.cloneAiSupplement(aiSupplement);
     cacheEntry.cachedAt = Date.now();
-    this.searchResultCache.set(normalizedQuery, cacheEntry);
+    this.searchResultCache.set(`${requestDirection}:${normalizedQuery}`, cacheEntry);
   }
 
-  private tryApplyCachedResult(query: string, updateHistory: boolean, updateBrowseHistory: boolean): boolean {
+  private tryApplyCachedResult(query: string, updateHistory: boolean, updateBrowseHistory: boolean, direction: string = this.searchDirection): boolean {
     const normalizedQuery = this.normalizeQuery(query);
     if (normalizedQuery.length === 0) {
       return false;
     }
 
-    const cacheEntry = this.searchResultCache.get(normalizedQuery);
+    const cacheEntry = this.searchResultCache.get(`${direction}:${normalizedQuery}`);
     if (cacheEntry === undefined) {
       return false;
     }
@@ -1239,16 +1287,39 @@ export struct DictContent {
     } else {
       // 主内容
       Column() {
-        // Header - 移除，使用全局的Header
-        // 搜索栏需要放在所有内容之前
+        if (!this.embedMode) {
+          Column({ space: 8 }) {
+            Row() {
+              Text('一个词，更多表达')
+                .fontSize(UI.TITLE_SIZE).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+              Blank()
+              Text('LingAI').fontSize(12).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+            }.width('100%')
+            Text('中韩双向查词，随手积累')
+              .fontSize(12).fontColor(COLORS.TEXT_SECONDARY).width('100%')
+          }
+          .width('100%')
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 18 })
+          .backgroundColor(UI.HEADER_BG)
+          .border({ width: { bottom: 1 }, color: COLORS.BORDER })
+        }
+        Flex({ wrap: FlexWrap.Wrap }) {
+          this.DirectionChip('自动识别', 'auto')
+          this.DirectionChip('韩语 → 中文', 'ko2zh')
+          this.DirectionChip('中文 → 韩语', 'zh2ko')
+        }
+        .width('100%')
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 14 })
+        Text(this.searchDirection === 'ko2zh' ? '输入韩语单词' : this.searchDirection === 'zh2ko' ? '输入中文释义' : '输入韩语单词或中文释义')
+          .width('100%').fontSize(12).fontColor(COLORS.TEXT_SECONDARY)
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 18, bottom: 7 })
 
       // Search bar
       Row() {
         Row() {
-          Image($r('app.media.ic_dict'))
+          Image($r('app.media.lg145_search'))
             .width(22)
             .height(22)
-            .fillColor(UI.BLUE)
             .margin({ left: 16 })
 
           TextInput({ text: this.searchText, placeholder: '输入中文或韩文搜索', controller: this.textInputController })
@@ -1288,7 +1359,7 @@ export struct DictContent {
           .width(56)
           .height(UI.TOUCH_MIN)
           .borderRadius(14)
-          .backgroundColor(this.searchText.trim().length > 0 ? UI.BLUE : COLORS.TEXT_HINT)
+          .backgroundColor(this.searchText.trim().length > 0 ? COLORS.PRIMARY : COLORS.TEXT_HINT)
           .margin({ right: 6 })
           .enabled(this.searchText.trim().length > 0)
           .onClick(() => {
@@ -1317,61 +1388,13 @@ export struct DictContent {
         .width('100%')
         .height(56)
         .backgroundColor(COLORS.SURFACE)
+        .border({ width: 1, color: COLORS.BORDER })
         .borderRadius(UI.CONTROL_RADIUS)
-        .border({ width: 1, color: UI.BLUE_SOFT })
       }
       .width('100%')
-      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: UI.CONTENT_TOP, bottom: 12 })
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 12 })
 
       this.DictQuotaBanner()
-
-      // 搜索历史下拉列表
-      if (this.showHistory && this.searchHistory.length > 0) {
-        Column() {
-          Row() {
-            Text('搜索历史')
-              .fontSize(UI.CAPTION_SIZE)
-              .fontColor(COLORS.TEXT_SECONDARY)
-            Blank()
-            Text('清空')
-              .fontSize(12)
-              .fontColor(COLORS.PRIMARY)
-              .constraintSize({ minWidth: UI.TOUCH_MIN, minHeight: UI.TOUCH_MIN })
-              .textAlign(TextAlign.Center)
-              .onClick(() => {
-                this.searchHistory = [];
-                this.saveSearchHistory();
-                this.showHistory = false;
-              })
-          }
-          .width('100%')
-          .padding({ left: 12, right: 12, top: 8, bottom: 4 })
-
-          ForEach(this.searchHistory, (item: string, index: number) => {
-            Row() {
-              Text('🕐')
-                .fontSize(14)
-                .margin({ right: 8 })
-              Text(item)
-                .fontSize(14)
-                .fontColor(COLORS.TEXT_PRIMARY)
-                .layoutWeight(1)
-            }
-            .width('100%')
-            .height(48)
-            .padding({ left: 16, right: 16 })
-            .onClick(() => {
-              this.onHistoryItemClick(item);
-            })
-          })
-        }
-        .width('100%')
-        .backgroundColor(COLORS.SURFACE)
-        .borderRadius(UI.CONTROL_RADIUS)
-        .margin({ left: UI.PAGE_INSET, right: UI.PAGE_INSET })
-        .border({ width: 1, color: COLORS.BORDER })
-        .shadow({ radius: 8, color: UI.SHADOW, offsetY: 2 })
-      }
 
       // 浏览历史导航条
       this.HistoryNavBar()
@@ -1401,7 +1424,8 @@ export struct DictContent {
             .height(48)
             .color(COLORS.PRIMARY)
           
-          Text('🤖 AI 正在分析...')
+          AssistantAvatar({ avatarSize: 56, expression: 'thinking' })
+          Text('AI 正在分析…')
             .fontSize(14)
             .fontWeight(FontWeight.Medium)
             .fontColor(COLORS.PRIMARY)
@@ -1417,11 +1441,11 @@ export struct DictContent {
             // 收藏单词卡片
             this.FavoritesCard()
 
-            // 最近添加区域
+            this.SearchHistorySection()
             this.RecentWordsSection()
           }
           .width('100%')
-          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12, bottom: 192 })
+          .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, top: 12, bottom: 80 })
           .alignItems(HorizontalAlign.Start)
         }
         .width('100%')
@@ -1431,10 +1455,9 @@ export struct DictContent {
       } else if (this.searchResults.length === 0 && this.aiSupplement === null) {
         // No results
         Column() {
-          Image($r('app.media.ic_dict'))
+          Image($r('app.media.lg145_search'))
             .width(48)
             .height(48)
-            .fillColor(COLORS.TEXT_HINT)
             .opacity(0.5)
 
           Text('未找到相关结果')
@@ -1466,7 +1489,7 @@ export struct DictContent {
 
                 if (this.resultSource === 'ai') {
                   Row() {
-                    Image($r('app.media.lingai_robot'))
+                    Image($r('app.media.lingai_assistant_twin_lights'))
                       .width(20)
                       .height(20)
                       .objectFit(ImageFit.Contain)
@@ -1517,7 +1540,11 @@ export struct DictContent {
                   .margin({ right: 8 })
                 }
 
-                Text(`${this.searchResults.length} 个结果`)
+                Text(this.searchResults.length > 0
+                  ? `${this.searchResults.length} 个词条`
+                  : this.aiSupplement !== null && this.aiSupplement.aiMeaning.trim().length > 0
+                    ? '已有释义'
+                    : this.isStreaming ? '生成中' : '查看详解')
                   .fontSize(12)
                   .fontColor(COLORS.TEXT_HINT)
               }
@@ -1553,7 +1580,7 @@ export struct DictContent {
 
             // Bottom spacing
             Row()
-              .height(192)
+              .height(80)
           }
           .width('100%')
         }
@@ -1606,92 +1633,89 @@ export struct DictContent {
   // ===== 新增Builder方法 =====
 
   @Builder
+  DirectionChip(label: string, direction: string) {
+    Button(label)
+      .type(ButtonType.Normal).height(UI.TOUCH_MIN).fontSize(12)
+      .fontColor(this.searchDirection === direction ? UI.ON_PRIMARY : COLORS.TEXT_SECONDARY)
+      .backgroundColor(this.searchDirection === direction ? COLORS.PRIMARY : UI.SURFACE_MUTED)
+      .borderRadius(10).padding({ left: 10, right: 10 }).margin({ right: 7, bottom: 4 })
+      .onClick(() => {
+        if (this.searchDirection === direction) return;
+        this.invalidateSearch();
+        this.searchDirection = direction;
+        this.hasSearched = false;
+        this.searchResults = [];
+        this.aiSupplement = null;
+        this.resultSource = '';
+        this.resultDirection = '';
+      })
+  }
+
+  @Builder
   FavoritesCard() {
-    // 收藏概览
     Row() {
-      // 左侧图标
-      Column() {
-        Image($r('app.media.ic_bookmark'))
-          .width(32)
-          .height(32)
-          .fillColor(COLORS.PRIMARY)
-      }
-      .width(56)
-      .height(56)
-      .backgroundColor(COLORS.SURFACE)
-      .borderRadius(18)
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-
-      // 中间文字
-      Column() {
-        Text(this.favoriteCount.toString())
-          .fontSize(36)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(UI.BLUE)
-        Text('收藏单词')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(COLORS.TEXT_PRIMARY)
-          .margin({ top: 2 })
-      }
-      .alignItems(HorizontalAlign.Start)
-      .margin({ left: 16 })
-
+      Text('随手查一查').fontSize(17).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
       Blank()
+      Button() {
+        Row({ space: 5 }) {
+          Image($r('app.media.ic_bookmark')).width(16).height(16).fillColor(COLORS.PRIMARY)
+          Text(`收藏 ${this.favoriteCount}`).fontSize(12).fontColor(COLORS.PRIMARY)
+        }
+      }
+      .height(UI.TOUCH_MIN).type(ButtonType.Normal).backgroundColor(Color.Transparent)
+      .onClick(() => { this.showFavoritesPage = true; })
+    }.width('100%')
+    Flex({ wrap: FlexWrap.Wrap }) {
+      ForEach(['안녕하세요', '감사합니다', '커피', '친구'], (word: string) => {
+        Button(word)
+          .type(ButtonType.Normal).height(UI.TOUCH_MIN).fontSize(13)
+          .fontColor(COLORS.TEXT_PRIMARY).backgroundColor(UI.SURFACE_MUTED).borderRadius(10)
+          .margin({ right: 7, bottom: 7 }).padding({ left: 12, right: 12 })
+          .onClick(() => {
+            this.searchDirection = 'ko2zh';
+            this.searchText = word;
+            this.performStreamingSearch();
+          })
+      })
+    }.width('100%')
+  }
 
-      // 右箭头
-      Text('›')
-        .fontSize(28)
-        .fontColor(COLORS.PRIMARY)
+  @Builder
+  SearchHistorySection() {
+    Row() {
+      Text('最近查过').fontSize(17).fontWeight(FontWeight.Bold).fontColor(COLORS.TEXT_PRIMARY)
+      Blank()
+      Button('清空').height(UI.TOUCH_MIN).fontSize(12).fontColor(COLORS.PRIMARY)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => {
+          this.searchHistory = [];
+          this.saveSearchHistory();
+          this.showHistory = false;
+        })
+    }.width('100%').margin({ top: 15, bottom: 6 })
+    if (this.searchHistory.length === 0) {
+      Text('还没有查询记录。查过的词会留在这里。')
+        .width('100%').fontSize(12).fontColor(COLORS.TEXT_SECONDARY).lineHeight(20)
+    } else {
+      ForEach(this.searchHistory, (word: string) => {
+        Row({ space: 12 }) {
+          Image($r('app.media.lg145_search')).width(18).height(18)
+          Text(word).fontSize(14).fontColor(COLORS.TEXT_PRIMARY).layoutWeight(1)
+          Text('↖').fontSize(18).fontColor(COLORS.TEXT_SECONDARY)
+        }
+        .width('100%').constraintSize({ minHeight: 60 })
+        .padding({ top: 12, bottom: 12 })
+        .border({ width: { bottom: 1 }, color: COLORS.BORDER })
+        .onClick(() => { this.onHistoryItemClick(word); })
+      })
     }
-    .width('100%')
-    .height(112)
-    .padding({ left: 20, right: 20 })
-    .backgroundColor(UI.GREEN_SOFT)
-    .borderRadius(UI.CARD_RADIUS)
-    .margin({ top: 3 })  // 距离搜索框的间距
-    .onClick(() => {
-      this.showFavoritesPage = true;
-    })
   }
 
   @Builder
   DictQuotaBanner() {
-    Row() {
-      Column() {
-        Text('今日免费查词额度')
-          .fontSize(UI.CAPTION_SIZE)
-          .fontColor(COLORS.TEXT_SECONDARY)
-
-        Text(this.dictQuotaSummary())
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(COLORS.TEXT_PRIMARY)
-          .margin({ top: 4 })
-
-        Text(this.dictQuotaCaption())
-          .fontSize(12)
-          .fontColor(COLORS.TEXT_HINT)
-          .lineHeight(18)
-          .margin({ top: 6 })
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-
-      Text(this.dictQuotaBadge())
-        .fontSize(12)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.dictQuotaBadgeTextColor())
-        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-        .backgroundColor(this.dictQuotaBadgeBackground())
-        .borderRadius(999)
-    }
-    .width('100%')
-    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .margin({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 8 })
-    .backgroundColor(UI.BLUE_SOFT)
-    .borderRadius(UI.CONTROL_RADIUS)
+    Text(this.dictQuotaSummary())
+      .fontSize(11).fontColor(COLORS.TEXT_SECONDARY).width('100%')
+      .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 8 })
   }
 
   @Builder
@@ -1699,7 +1723,7 @@ export struct DictContent {
     Column() {
       // 标题
       Text('最近添加')
-        .fontSize(19)
+        .fontSize(17)
         .fontWeight(FontWeight.Bold)
         .fontColor(COLORS.TEXT_PRIMARY)
         .margin({ bottom: 12 })
@@ -1711,7 +1735,7 @@ export struct DictContent {
           Column() {
             Row() {
               Text(word.hangul)
-                .fontSize(22)
+                .fontSize(18)
                 .fontWeight(FontWeight.Bold)
                 .fontColor(COLORS.TEXT_PRIMARY)
             }
@@ -1727,12 +1751,11 @@ export struct DictContent {
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
-          .padding(16)
-          .backgroundColor(COLORS.SURFACE)
-          .borderRadius(UI.CONTROL_RADIUS)
-          .margin({ bottom: 10 })
+          .padding({ top: 15, bottom: 15 })
+          .border({ width: { bottom: 1 }, color: COLORS.BORDER })
           .onClick(() => {
             this.detailWord = word.hangul;
+            this.searchDirection = 'ko2zh';
             this.searchText = word.hangul;
             this.performStreamingSearch();
           })
@@ -1880,13 +1903,14 @@ export struct DictContent {
             .onClick(() => {
               this.showFavoritesPage = false;
               this.detailWord = word.hangul;
+              this.searchDirection = 'ko2zh';
               this.searchText = word.hangul;
               this.performStreamingSearch();
             })
           })
         }
         .width('100%')
-        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 192 })
+        .padding({ left: UI.PAGE_INSET, right: UI.PAGE_INSET, bottom: 80 })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
@@ -2007,10 +2031,7 @@ export struct DictContent {
   AISupplementCard() {
     Column() {
       Row({ space: 8 }) {
-        Image($r('app.media.lingai_robot'))
-          .width(28)
-          .height(28)
-          .objectFit(ImageFit.Contain)
+        AssistantAvatar({ avatarSize: 36, expression: this.isStreaming ? 'thinking' : 'happy', motionEnabled: this.isStreaming })
         Text('AI 词典')
           .fontSize(UI.CAPTION_SIZE)
           .fontWeight(FontWeight.Medium)
@@ -2422,7 +2443,7 @@ export struct DictContent {
       // 实用知识/提示
       if (this.aiSupplement !== null && this.aiSupplement.tips !== '') {
         Row() {
-          Image($r('app.media.lingai_robot'))
+          Image($r('app.media.lingai_assistant_twin_lights'))
             .width(28)
             .height(28)
             .objectFit(ImageFit.Contain)
@@ -2443,8 +2464,8 @@ export struct DictContent {
     .width('100%')
     .padding(UI.PAGE_INSET)
     .backgroundColor(COLORS.SURFACE)
-    .borderRadius(UI.CARD_RADIUS)
     .border({ width: 1, color: COLORS.BORDER })
+    .borderRadius(UI.CARD_RADIUS)
     .shadow({ radius: 6, color: UI.SHADOW, offsetY: 2 })
   }
 
